@@ -1,0 +1,100 @@
+{
+  "user_key": "default",
+  "runtime": "grokbot",
+  "x_handle": null,
+  "x_user_id": null,
+  "display_name": null,
+  "operating_mode": "automatic",
+  "first_run_direction": "AUTOMATIC_CLEANUP",
+  "automatic_opt_in": true,
+  "protection": {
+    "protect_accounts_user_follows": true,
+    "exclude_verified_from_removal": true,
+    "protect_always_keep": true,
+    "watched_countries": [
+      "nigeria",
+      "india",
+      "bangladesh",
+      "china"
+    ],
+    "inactivity_days_threshold": 90,
+    "country_signal_weight": 1
+  },
+  "data_root_relative": "data/users/default",
+  "notes": "Template for new users. Automatic Mode is ON by default (user can switch to Manual). Do not treat any one user's private lists as product rules.",
+  "is_test_fixture": false,
+  "product_name": "Follower Finder",
+  "bot_display_name": "Follower Finder",
+  "product_display_name": "Follower Finder",
+  "HIDE_VERIFIED_FROM_REVIEW_QUEUE": true,
+  "operating_mode_note": "Automatic Mode is the default since 2026-10-16 4:01 PM PT (owner authorization). Switch to 'review' (Manual) anytime; switches are logged and affect only future cards.",
+  "session_follower_counts": "always_on",
+  "session_follower_counts_note": "Universal built-in standard since 2026-10-16 ~4:28 PM PT: every purge session records the start and end follower counts (read-only followers_count + timestamp). Always on and part of default setup; not a toggle. See src/session_counts.py.",
+  "candidate_card_ui": {
+    "select_all_label": "Mark all for termination",
+    "allow_free_text": false,
+    "note": "Product-wide default for all users (label + review note updated 2026-10-16 4:52 PM PT; source of truth: src/product_config.py).",
+    "review_note": "Unmarked accounts will be kept in review."
+  },
+  "approval_check_note": "Heads up: this is just a Grok Bot action check before I run a step. It has nothing to do with X, and it's not a flag on your account.",
+  "approval_check_note_note": "Product-wide standard since 2026-10-16 4:55 PM PT: posted alongside every Grok Bot approval/safety-check card; card behavior unchanged. Source: src/product_config.py",
+  "prior_cleanup": {
+    "_note": "Product-wide setup step (2026-10-16 ~5:32 PM PT); per-user values, isolated per user_key. Asked at initial setup: see product_config.PRIOR_CLEANUP_QUESTION.",
+    "last_purge_date": null,
+    "last_purge_tool": null,
+    "last_purge_follower_count": null,
+    "first_scan_window_estimate": null,
+    "scan_mode": "backlog",
+    "optional": true,
+    "skip_answer": "Skip / never done one",
+    "skipped": false,
+    "optional_note": "Optional, skippable (2026-10-16 ~5:32 PM PT). Skipped or 'never' -> first scan starts with recent batches and works backward with pacing."
+  },
+  "graveyard_return_action": "review",
+  "graveyard_return_action_note": "Graveyard returns (removed accounts that follow again) are BLOCKED, never removed again. 'review' (default) = each block needs your OK; 'auto_block' = your standing setting authorizes it.",
+  "inactivity": {
+    "use_profile_fields_without_sample": true,
+    "zero_posts_min_account_age_days": 365,
+    "low_post_rate_per_year": 1.0,
+    "low_post_rate_min_account_age_days": 730,
+    "classify_chunk_size": 1000,
+    "_note": "Inactive detection without an activity sample (2026-10-16). Threshold stays protection.inactivity_days_threshold. A dated last post/activity at or past the threshold = INACTIVE; zero posts on an old account or a very low lifetime post rate are hints only -> REVIEW. An activity sample, when present, takes precedence. Protections run first."
+  },
+  "sheets": {
+    "backend": "connector",
+    "backend_note": "connector (default): the bot writes with the Google Sheets connector you connect in your own Grok Bot, so the sheet is in your own Drive. google_api: advanced fallback outside Grok Bot (your own OAuth client or service-account key). csv: no sheet, CSV report only.",
+    "title": "Follower Finder Log"
+  },
+  "runtime_note": "Locked to Grok Bot mode: Google Sheets + Google Drive are rechecked each session; the standalone path needs its own config plus FOLLOWER_FINDER_STANDALONE=1 and is not part of this template.",
+  "daily_removal_cap": 10,
+  "inactive_mutuals_per_day": 3,
+  "daily_scan": {
+    "time": null,
+    "reminder_via_front_door": false
+  },
+  "book": {
+    "title": "Follower Finder Book",
+    "document_id": null
+  },
+  "lists": {
+    "enabled": false
+  },
+  "terminate_reminder": {
+    "enabled": false,
+    "time": null,
+    "tz": null,
+    "snoozed_until": null,
+    "last_answer_date": null,
+    "last_answer": null,
+    "_note": "Optional (v3.2.0, default OFF). The bot's own daily chat nudge 'Hey, want to terminate some bots?' (Yes / Remind me later / Not today). Separate from daily_scan.reminder_via_front_door. See src/terminate_reminder.py."
+  },
+  "memory": {
+    "enabled": true,
+    "backup": {
+      "enabled": false,
+      "repo": null,
+      "last_backup_at": null
+    },
+    "_note": "v3.3.0. Your own private memory at data/users/<user_key>/memory/brain.db (starts empty; never stores secrets). Backup to a PRIVATE GitHub repo you own is optional and OFF by default; it uses your own gh login and never saves a token. See src/memory.py."
+  }
+}

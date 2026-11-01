@@ -1,0 +1,11 @@
+#!/usr/bin/env sh
+# Shortcut for the per-user memory CLI:  MEM_USER=<user_key> tools/mem boot|add|fact|log|q|find|lesson|lessons|supersede|history|backup ...
+# v3.5.14: `tools/mem hive ...` runs the shipped Hive client (hive/hive.py) on this owner's brain.db, e.g.
+#   MEM_USER=<user_key> tools/mem hive feedback --bot ff --category bug|request|praise|other "text" --dry-run
+PKG="$(cd "$(dirname "$0")/.." && pwd)"
+if [ "${1:-}" = "hive" ]; then
+  shift
+  if [ -n "${MEM_USER:-}" ] && [ -z "${MEM_DB:-}" ]; then MEM_DB="$PKG/data/users/$MEM_USER/memory/brain.db"; export MEM_DB; fi
+  exec python3 "$PKG/hive/hive.py" "$@"
+fi
+cd "$PKG" && exec python3 -m src.memory "$@"
