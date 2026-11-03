@@ -262,7 +262,7 @@ class AboutReadPacer:
     burst_size: int = 20
     burst_pause_s: float = 90.0
     cooldown_429_s: float = 180.0
-    max_per_session: int = 150
+    max_per_session: int | None = None  # v3.5.31: no cap; stops only on warnings/2x429 (machine)
     machine: PaceMachine = field(default_factory=lambda: PaceMachine(PaceConfig(
         initial_batch_size=20, min_batch_size=5, max_batch_size=20, cooldown_seconds=180.0,
         hard_stop_after_failures=2)))
@@ -271,7 +271,7 @@ class AboutReadPacer:
     _rng: random.Random = field(default_factory=lambda: random.Random(0), repr=False)
 
     def can_continue(self) -> bool:
-        return self.machine.can_continue() and self.reads < self.max_per_session
+        return self.machine.can_continue() and (self.max_per_session is None or self.reads < self.max_per_session)
 
     def wait_before_next(self) -> float:
         """Seconds to wait before the next About read (the caller sleeps; nothing sleeps here)."""

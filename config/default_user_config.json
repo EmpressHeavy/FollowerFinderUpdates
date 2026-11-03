@@ -68,6 +68,12 @@
   "runtime_note": "Locked to Grok Bot mode: Google Sheets + Google Drive are rechecked each session; the standalone path needs its own config plus FOLLOWER_FINDER_STANDALONE=1 and is not part of this template.",
   "daily_removal_cap": 10,
   "inactive_mutuals_per_day": 3,
+  "review_schedule": {
+    "preset": "daily",
+    "time": "18:00",
+    "cron": "0 18 * * *",
+    "_note": "v3.5.31. Presets: daily, weekdays, 3x_week, 2x_week, weekly, or custom cron (runs >= 5 min apart). See src/review_schedule.py."
+  },
   "daily_scan": {
     "time": null,
     "reminder_via_front_door": false

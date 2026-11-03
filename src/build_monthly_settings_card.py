@@ -58,7 +58,8 @@ def lists_line(lists_enabled: bool | None) -> str | None:
 
 
 def build(prior_cleanup: dict | None = None, lists_enabled: bool | None = None, cfg: dict | None = None,
-          allow_reply_heavy: bool | None = None, situational: dict | None = None) -> dict:
+          allow_reply_heavy: bool | None = None, situational: dict | None = None,
+          review_schedule: dict | None = None) -> dict:
     """lists_enabled (from the user's config) adds a companion line that says whether list checks are on.
     cfg (the user's own config) fills the Terminate reminder line (on/off, time) and the front-door reminder state;
     without it the line shows the default: OFF."""
@@ -76,6 +77,10 @@ def build(prior_cleanup: dict | None = None, lists_enabled: bool | None = None, 
            "unfollow_back_check": UNFOLLOW_BACK_LINE}
     if situational is not None:
         out["situational_settings"] = situational_section(situational)
+    if review_schedule is not None:
+        out["review_schedule"] = {"line": "Review schedule: " + review_schedule.get("description", review_schedule.get("cron", "")),
+                                  "change_option": "Change review schedule",
+                                  "on_change": "re-ask review_schedule.CARD, save with preferences.set_review_schedule, update the review routine"}
     return out
 
 

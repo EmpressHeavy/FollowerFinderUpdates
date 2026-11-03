@@ -61,7 +61,7 @@ FOLLOW_ALL = "__follow_all__"
 FOLLOW_ALL_LABEL = "Follow all on this card"
 RECHECKED_LABEL = "Rechecked"
 NONE_FOUND = "None found"
-FOLLOWER_PAGE_CAP = 1000
+FOLLOWER_PAGE_CAP = None  # v3.5.31: no cap; page until X runs out (rate limits pause+resume in the adapter)
 USER_FIELDS = "created_at,description,public_metrics,verified,verified_type,pinned_tweet_id,connection_status"
 INTEREST_FACTORS = ("builds Grok bots/agents", "Grok Imagine work", "real conversations")
 
@@ -89,16 +89,16 @@ def load_prefs(owner_key: str, root=None) -> dict:
             "daily_review_time": pf.get_daily_review_time(owner_key, root=root)}
 
 
-def _page(x: XAdapter, tool: str, base: dict, cap: int = FOLLOWER_PAGE_CAP, stop_when=None) -> list[dict]:
+def _page(x: XAdapter, tool: str, base: dict, cap: int | None = FOLLOWER_PAGE_CAP, stop_when=None) -> list[dict]:
     out, token = [], None
-    while len(out) < cap:
+    while cap is None or len(out) < cap:
         r = x.call(tool, dict(base, **({"pagination_token": token} if token else {}))) or {}
         data = r.get("data") or []
         out += data
         token = (r.get("meta") or {}).get("next_token")
         if not token or not data or (stop_when and stop_when(data)):
             break
-    return out[:cap]
+    return out if cap is None else out[:cap]
 
 
 def _interest_line(score: dict) -> str:

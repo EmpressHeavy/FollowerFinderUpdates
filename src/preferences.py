@@ -137,3 +137,30 @@ def set_daily_review_time(user_key: str, hhmm: str, *, source: str = "owner card
     if not re.fullmatch(r"([01]\d|2[0-3]):[0-5]\d", hhmm or ""):
         raise ValueError("daily_review_time must be HH:MM (24h, owner's timezone)")
     return mem.fact(user_key, SUBJECT, DAILY_REVIEW_TIME, hhmm, source=source, root=root)
+
+
+REVIEW_SCHEDULE = "review_schedule"
+
+
+def get_review_schedule(user_key: str, root=None) -> dict:
+    """Saved review schedule {preset, cron, time, description}; falls back to daily at daily_review_time."""
+    import json
+    try:
+        from . import review_schedule as rs
+    except ImportError:
+        import review_schedule as rs
+    _, rows = mem.q(user_key, "SELECT value FROM fact WHERE subject=? AND predicate=? AND valid_to IS NULL "
+                              "ORDER BY id DESC LIMIT 1", (SUBJECT, REVIEW_SCHEDULE), root=root)
+    if rows:
+        return json.loads(rows[0][0])
+    return rs.build("daily", get_daily_review_time(user_key, root=root))
+
+
+def set_review_schedule(user_key: str, sched: dict, *, source: str = "owner card", root=None) -> dict:
+    import json
+    try:
+        from . import review_schedule as rs
+    except ImportError:
+        import review_schedule as rs
+    rs.validate_cron(sched.get("cron", ""))
+    return mem.fact(user_key, SUBJECT, REVIEW_SCHEDULE, json.dumps(sched, sort_keys=True), source=source, root=root)

@@ -32,7 +32,7 @@ except ImportError:  # top-level import
 
 RECHECK_CONFIG: dict[str, Any] = {
     "RECHECK_INTERVAL_DAYS": 30,     # skipped_at/last check -> next recheck_due
-    "RECHECK_MAX_PER_RUN": 10,       # cap of queue rows re-dived per daily run
+    "RECHECK_MAX_PER_RUN": None,     # v3.5.31: no per-run cap (None = all due rows)
     "RECHECK_MAX_COUNT": None,       # optional: resolve after this many still-inactive rechecks (None = keep forever)
 }
 
@@ -172,7 +172,7 @@ def process_due(user_key: str, call_tool: Callable[[str, dict], dict], owner_id:
     out = {"surface": [], "still_inactive": [], "removed": [], "deferred": [], "calls_used": 0}
     rows = due(user_key, now=t, root=root)
     for i, row in enumerate(rows):
-        if i >= c["RECHECK_MAX_PER_RUN"] or (calls_remaining is not None and calls_remaining - out["calls_used"] < per):
+        if (c["RECHECK_MAX_PER_RUN"] is not None and i >= c["RECHECK_MAX_PER_RUN"]) or (calls_remaining is not None and calls_remaining - out["calls_used"] < per):
             out["deferred"].append(row["account_key"]); continue
         if db.is_drive_by(user_key, row["user_id"], root=root):
             remove(user_key, row["user_id"], row["handle"], why="drive_by", root=root)
