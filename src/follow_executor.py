@@ -30,8 +30,10 @@ from typing import Callable
 
 try:
     from . import verified_followers as vf
+    from . import x_web_session as xws
 except ImportError:  # pragma: no cover
     import verified_followers as vf
+    import x_web_session as xws
 
 # v3.5.29: the ONE place web follow/unfollow pacing is configured.
 PACING = {
@@ -306,6 +308,17 @@ def outcome(r: dict) -> str:
     return OUT_FAILED
 
 
+def owner_config(user_key, root=None) -> dict:
+    try:
+        try:
+            from . import storage
+        except ImportError:  # pragma: no cover
+            import storage
+        return storage.load_user_config_dict(root, user_key=user_key)
+    except Exception:
+        return {}
+
+
 class FollowSession:
     """Step-by-step driver for the parent bot: one browser subagent per account, strictly one at a time.
 
@@ -314,11 +327,15 @@ class FollowSession:
             wait t['wait_s'];  report = <run one browser subagent with t['task']>
             s.submit(report)                 # any X warning / sign-in wall ends the session
         result = s.finish(x)                 # re-reads get_users_me_following; only verified follows count
+    v3.5.33: the FIRST task (and the first after any mid-batch needs_x_signin) is {'kind': 'x_preflight'}: run it
+    read-only and submit() its report. No follow task is emitted until the signed-in @handle equals the owner's
+    saved handle; a mismatch / sign-out stops the batch with nothing clicked (stop['action'] says what to do).
     Every step is appended to follow_back.jsonl (never rewritten). Report 'done' to the owner only from finish()."""
 
     def __init__(self, user_key: str, run_id: str, picks: list[dict], *, confirmations: dict | None = None,
                  rand: Callable[[float, float], float] = random.uniform, skip: Callable[[dict], str | None] | None = None,
-                 root=None, track_source: str = "follow_back"):
+                 root=None, track_source: str = "follow_back", owner_handle: str | None = None,
+                 vault_saved: bool | None = None, relogin_attempts: int = 0):
         try:
             from . import unfollow_back as ub, blocked_by as bb
         except ImportError:  # pragma: no cover
@@ -337,6 +354,14 @@ class FollowSession:
         self._i = 0
         self._pending = None
         self.finished = None
+        cfg = owner_config(user_key, root)
+        self.owner_handle = owner_handle or cfg.get("owner_x_handle") or cfg.get("x_handle")
+        self.vault_saved = bool(cfg.get("x_login_in_vault")) if vault_saved is None else bool(vault_saved)
+        self.relogin_attempts, self.preflight_ok, self.reauths = relogin_attempts, False, 0
+        self.preflight = None
+
+    def _remaining(self, i):
+        return [{"user_id": q["user_id"], "handle": q["handle"]} for q in self.plan[i:]]
 
     def _log(self, ev: dict):
         vf.append_log(self.user_key, {"run_id": self.run_id, **ev}, self.root)
@@ -346,6 +371,14 @@ class FollowSession:
             raise RuntimeError("submit() the current account's report before asking for the next one")
         if self.stop is not None or self.finished is not None:
             return None
+        if not self.preflight_ok:
+            if not xws.norm_handle(self.owner_handle):
+                self.stop = {"reason": xws.NEEDS_X_SIGNIN, "action": xws.SHOW_SIGNIN_CARD, "at_handle": None,
+                             "detail": "owner X handle unknown", "not_attempted": self._remaining(self._i)}
+                self._log({"event": "FOLLOW_STOPPED", **self.stop})
+                return None
+            self._pending = "preflight"
+            return {"kind": "x_preflight", "wait_s": 0.0, "item": None, "task": xws.preflight_task(self.owner_handle)}
         while self._i < len(self.plan):
             item, pick = self.plan[self._i], self.picks[self._i]
             why = self.skip(pick)
@@ -360,12 +393,14 @@ class FollowSession:
                 wait = pace_gap(self.attempted, self.rand)
                 self.gaps.append(wait)
             self._pending = self._i
-            return {"wait_s": wait, "item": item, "task": browser_task(item)}
+            return {"kind": "follow", "wait_s": wait, "item": item, "task": browser_task(item)}
         return None
 
     def submit(self, raw) -> dict:
         if self._pending is None:
             raise RuntimeError("no account is waiting for a report")
+        if self._pending == "preflight":
+            return self._submit_preflight(raw)
         i = self._pending
         self._pending, self._i = None, i + 1
         self.attempted += 1
@@ -375,6 +410,12 @@ class FollowSession:
             r.setdefault("clicked", bool(r.get("ok") or r.get("verified_following")))
             r["button_after"] = "Following" if r.get("verified_following") else ("Follow" if r.get("clicked") else None)
         out = outcome(r)
+        if out == OUT_NEEDS_SIGN_IN and self.reauths < 1:  # re-check the session, then retry this account once
+            self.reauths += 1
+            self.attempted -= 1
+            self._i, self.preflight_ok = i, False
+            self._log({"event": "FOLLOW_RECHECK_SESSION", "at_handle": item["handle"]})
+            return {"outcome": out, "stop": None, "recheck": True}
         if out == OUT_NEEDS_SIGN_IN:
             self.stop = {"reason": NEEDS_SIGNIN, "at_handle": item["handle"],
                          "not_attempted": [{"user_id": q["user_id"], "handle": q["handle"]} for q in self.plan[i:]]}
@@ -398,6 +439,22 @@ class FollowSession:
                          "not_attempted": [{"user_id": q["user_id"], "handle": q["handle"]} for q in self.plan[i + 1:]]}
             self._log({"event": "FOLLOW_STOPPED", **self.stop})
         return {"outcome": out, "stop": self.stop}
+
+    def _submit_preflight(self, raw) -> dict:
+        self._pending = None
+        rep = xws.parse_report(raw if raw is not None else "", self.owner_handle)
+        d = xws.decide(rep, self.owner_handle, vault_saved=self.vault_saved, relogin_attempts=self.relogin_attempts)
+        self.preflight = {**rep, **d}
+        self._log({"event": "X_SESSION_CHECK", "status": d["status"], "signed_in_as": rep["signed_in_as"],
+                   "expected": "@" + xws.norm_handle(self.owner_handle), "action": d["action"]})
+        if d["action"] == xws.PROCEED:
+            self.preflight_ok = True
+            return {"outcome": "x_preflight", "action": d["action"], "stop": None}
+        self.stop = {"reason": d["status"] if d["status"] in (xws.WRONG_ACCOUNT,) else xws.NEEDS_X_SIGNIN,
+                     "action": d["action"], "at_handle": None, "signed_in_as": rep["signed_in_as"],
+                     "detail": d["text"], "not_attempted": self._remaining(self._i)}
+        self._log({"event": "FOLLOW_STOPPED", **self.stop})
+        return {"outcome": "x_preflight", "action": d["action"], "stop": self.stop}
 
     def finish(self, x=None) -> dict:
         """Confirm before reporting done: verify every attempted follow, write FOLLOW_VERIFIED rows, build the one
@@ -423,7 +480,8 @@ class FollowSession:
                                  run_id=run_id, follows_user=p.get("follows_user"), root=root)
         out["followed_ids"] = [it["user_id"] for it in self.results if it["handle"] in out[FOLLOWED]]
         stop, skipped = self.stop, self.skipped
-        status = NEEDS_SIGNIN if stop and stop["reason"] == NEEDS_SIGNIN else ("stopped" if stop else "done")
+        status = stop["reason"] if stop and stop["reason"] in (NEEDS_SIGNIN, xws.WRONG_ACCOUNT) else (
+            "stopped" if stop else "done")
         parts = [f"Verified follows: {len(out[FOLLOWED])}" + (f" ({', '.join('@' + h for h in out[FOLLOWED])})"
                                                               if out[FOLLOWED] else "") + "."]
         for k, lab in ((PENDING, "Pending (protected account)"), (FAILED, "Failed"), (NOT_AVAILABLE, "Not available")):
@@ -431,7 +489,9 @@ class FollowSession:
                 parts.append(f"{lab}: {', '.join('@' + h for h in out[k])}.")
         if skipped:
             parts.append(f"Skipped: {', '.join('@' + s['handle'] + ' (' + s['reason'] + ')' for s in skipped)}.")
-        if status == NEEDS_SIGNIN:
+        if stop and stop.get("action") and stop.get("detail"):
+            parts.append(stop["detail"])
+        elif status == NEEDS_SIGNIN:
             parts.append(f"Stopped: {NEEDS_SIGNIN_TEXT}.")
         elif stop:
             parts.append(f"Stopped after X showed {stop['reason'].replace('_', ' ')} at @{stop['at_handle']}; "
@@ -445,13 +505,17 @@ class FollowSession:
 def run_browser(user_key: str, run_id: str, picks: list[dict], browser_follow: Callable[[dict], dict], *, x=None,
                 confirmations: dict | None = None, sleep: Callable[[float], None] = time.sleep,
                 rand: Callable[[float, float], float] = random.uniform, skip: Callable[[dict], str | None] | None = None,
-                root=None, track_source: str = "follow_back") -> dict:
+                root=None, track_source: str = "follow_back", preflight: Callable[[dict], dict] | None = None,
+                owner_handle: str | None = None, vault_saved: bool | None = None) -> dict:
     """browser_follow(plan_item) -> the subagent's report (dict, or text parsed by parse_browser_result). x: X plugin
     client used to re-read get_users_me_following after the batch. confirmations: {user_id: 'Yes'|'No'} from
     refollow_gate_card. Thin loop over FollowSession."""
     s = FollowSession(user_key, run_id, picks, confirmations=confirmations, rand=rand, skip=skip, root=root,
-                      track_source=track_source)
+                      track_source=track_source, owner_handle=owner_handle, vault_saved=vault_saved)
     while (t := s.next_task()) is not None:
+        if t["kind"] == "x_preflight":
+            s.submit(preflight(t["task"]) if preflight else {"signed_in": None, "error": "no preflight runner"})
+            continue
         if t["wait_s"]:
             sleep(t["wait_s"])
         s.submit(browser_follow(t["item"]))

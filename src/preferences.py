@@ -229,3 +229,27 @@ def set_limits(user_key: str, *, root=None, source: str = "owner card", **limits
     except Exception:  # memory is best-effort; config.json is the source of truth
         pass
     return get_limits(cfg)
+
+
+def set_x_vault(user_key: str, saved: bool, *, root=None, source: str = "owner card") -> bool:
+    """v3.5.33: remember ONLY whether the owner saved their x.com login in their vault (a yes/no flag, never the
+    login itself). True -> a dropped x.com session is re-signed-in with FillCredential; False -> sign-in card."""
+    try:
+        from . import storage as st
+    except ImportError:
+        import storage as st
+    p = st.user_config_path(root, user_key=user_key)
+    if p is None:
+        raise ValueError("no config for this user")
+    cfg = st.load_user_config_dict(root, user_key=user_key)
+    cfg["x_login_in_vault"] = bool(saved)
+    st.save_json(p, cfg)
+    try:
+        st.apply_user_permissions(user_key, root)
+    except Exception:
+        pass
+    try:
+        mem.fact(user_key, SUBJECT, "x_login_in_vault", "yes" if saved else "no", source=source, root=root)
+    except Exception:
+        pass
+    return bool(saved)

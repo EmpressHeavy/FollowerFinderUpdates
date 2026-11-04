@@ -283,8 +283,11 @@ def _picked(c, run_id: str) -> set[str]:
 # ---------- 4. unfollow + flag ----------
 def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unfollow: Callable[[str], dict], *,
                       sleep: Callable[[float], None] = time.sleep, rand=random.uniform, flag: bool = True,
-                      root=None) -> dict:
-    """picks: [{'user_id','handle'}]; each must be in an UNFOLLOW_SELECTION for run_id (else PermissionError, nothing done).
+                      root=None, preflight: Callable[[dict], dict] | None = None, owner_handle: str | None = None,
+                      vault_saved: bool | None = None) -> dict:
+    """v3.5.33: preflight(task) runs x_web_session.preflight_task read-only first; unless the bot's x.com session is
+    signed in as the owner, nothing is unfollowed (status needs_x_signin / wrong_account + 'action').
+    picks: [{'user_id','handle'}]; each must be in an UNFOLLOW_SELECTION for run_id (else PermissionError, nothing done).
     browser_unfollow(handle) -> {'ok', 'verified_unfollowed', 'stop', 'error'}."""
     with mem._Tx(user_key, root) as c:
         allowed = _picked(c, run_id)
@@ -293,6 +296,24 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
     if bad:
         raise PermissionError(f"not ticked by the owner in {run_id}: {bad}")
     plan = build_unfollow_plan(picks)
+    xs = fx.xws
+    cfg = fx.owner_config(user_key, root)
+    owner = owner_handle or cfg.get("owner_x_handle") or cfg.get("x_handle")
+    vs = bool(cfg.get("x_login_in_vault")) if vault_saved is None else vault_saved
+    if not xs.norm_handle(owner):
+        d = {"action": xs.SHOW_SIGNIN_CARD, "status": xs.NEEDS_X_SIGNIN, "text": "Nothing was unfollowed: owner X handle unknown."}
+        rep = {"signed_in_as": None}
+    else:
+        rep = xs.parse_report(preflight(xs.preflight_task(owner)) if preflight else {"signed_in": None}, owner)
+        d = xs.decide(rep, owner, vault_saved=vs)
+    if d["action"] != xs.PROCEED:
+        stop = {"reason": xs.WRONG_ACCOUNT if d["status"] == xs.WRONG_ACCOUNT else fx.NEEDS_SIGNIN,
+                "action": d["action"], "signed_in_as": rep["signed_in_as"], "at_handle": None,
+                "not_attempted": [_h(x["handle"]) for x in picks]}
+        with mem._Tx(user_key, root) as c:
+            _log(c, "UNFOLLOW_STOPPED", run_id=run_id, detail=stop)
+        return {"status": stop["reason"], "unfollowed": [], "failed": [], "stopped": stop, "plan": plan, "gaps": [],
+                "text": d["text"]}
     done, failed, gaps, stop = [], [], [], None
     for i, p in enumerate(picks):
         if i:

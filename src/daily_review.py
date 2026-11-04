@@ -288,7 +288,7 @@ def finish_review(owner_key: str, run_id: str, picks: dict, browser: BrowserAdap
     summary = fx.run_browser(owner_key, run_id, plan, lambda item: browser.follow(item["handle"], item["steps"]), x=x,
                              confirmations=conf,
                              skip=_both(bb.follow_guard(owner_key, root), ub.gate_skip(owner_key, conf, root)),
-                             root=root, **kw)
+                             root=root, preflight=getattr(browser, "preflight", None), **kw)
     for uid in summary["followed_ids"]:
         rq.remove(owner_key, uid, shown[uid]["handle"], why="followed", root=root)
     return summary

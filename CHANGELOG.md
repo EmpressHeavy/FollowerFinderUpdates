@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.5.33
+- Follows and unfollows are clicked in my own browser on x.com, so setup now checks that browser is signed in to YOUR X account (right after the X connector check). If it isn't, a sign-in card lets you sign in on my desktop or through a secure login form. I never ask for your password in chat.
+- Recommended: save your X login to your vault so I can sign back in on my own if the session drops. A 2FA code or captcha still needs you.
+- Before every follow or unfollow batch I confirm the signed-in @handle is yours. If a different account is signed in, or none is, I stop before clicking anything.
+
 ## v3.5.32
 - Follow-backs: a fixed contract with the browser helper. One account at a time, it clicks only "Follow", reports back in a set format, and the run stops at any sign-in page or X warning. A follow only counts once X shows it in your following list (`follow_executor.FollowSession`).
 - No daily removal limit by default. You still pick every removal, cards show at most 5, and runs stop at any X warning or when you say stop. You can set your own limit at setup, from the monthly check-in, or anytime (`preferences.set_limits`).

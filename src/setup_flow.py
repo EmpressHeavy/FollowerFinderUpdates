@@ -20,7 +20,7 @@ except ImportError:  # pragma: no cover
 WELCOME_QUESTION = "Have you used Follower Finder before?"
 WELCOME_OPTIONS = ["Yes", "No", "Not sure"]
 STEPS = ["welcome_card", "update_check", "restore_or_new", "memory", "github_backup", "feedback", "hive_mind",
-         "setup_questions", "review_schedule", "routines"]
+         "setup_questions", "x_connector_check", "x_web_session", "review_schedule", "routines"]
 
 
 def next_step(done: str, *, welcome_answer: str | None = None, update_status: str | None = None) -> str:
@@ -226,3 +226,16 @@ def update_message(result: dict, changelog: str = "", *, failed_weeks: int = 0, 
     if st in ("error", None) and failed_weeks >= 3 and not during_setup:
         return f"Heads up: I haven't been able to check for Follower Finder updates for {failed_weeks} weeks. I'll keep trying."
     return None
+
+
+# ---------------------------------------------------------------- x.com web session (v3.5.33)
+def x_web_session_step(report, owner_handle: str, *, vault_saved: bool = False) -> dict:
+    """Setup step after the X connector check: the bot's own browser must be signed in to the owner's x.com account
+    (follow/unfollow clicks happen there, not through the connector). report = the read-only preflight subagent's
+    reply to x_web_session.preflight_task(owner_handle). Returns the decision plus the cards to show next
+    (sign-in card when signed out / wrong account / code needed; vault offer once signed in) and 'done'."""
+    try:
+        from . import x_web_session as xws
+    except ImportError:  # pragma: no cover
+        import x_web_session as xws
+    return xws.setup_plan(report, owner_handle, vault_saved=vault_saved)
