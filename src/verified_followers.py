@@ -322,25 +322,5 @@ def days_since(iso: str | None, now: dt.datetime | None = None) -> int | None:
     return ((now or dt.datetime.now(dt.timezone.utc)) - t).days
 
 
-def recommend(profile: dict, rq: dict, cv: dict, last_post_iso: str | None, now=None) -> dict:
-    """Follow back / Maybe / Skip + one-line reason. Farmers and repost-only accounts -> Skip."""
-    d = days_since(last_post_iso, now)
-    if cv.get("status") == NA or d is None:
-        return {"rec": "Maybe", "reason": "Not enough data (recent posts not available)"}
-    if d > 60:
-        return {"rec": "Skip", "reason": f"Inactive: last post {d} days ago"}
-    rr = cv["repost_ratio"]
-    lowk = set(cv.get("low_kinds", []))
-    if rr >= 0.8:
-        return {"rec": "Skip", "reason": f"Repost-only account ({int(rr*100)}% reposts)"}
-    if rq["count"] and rq["low"] > rq["high"] and lowk & {"low_farm", "low_crypto", "low_gm"}:
-        return {"rec": "Skip", "reason": "Low-quality replies to you and engagement-bait posts"}
-    if {"low_farm", "low_crypto"} & lowk and cv["own_high"] <= cv["own_low"]:
-        return {"rec": "Skip", "reason": "Mostly engagement farming / shilling"}
-    score = (2 * rq["high"] - rq["low"]) + (2 if cv["value_signals"] else 0) + (1 if cv["own_high"] > cv["own_low"] else -1) \
-        - (1 if rr >= 0.5 else 0)
-    if score >= 3:
-        return {"rec": "Follow back", "reason": "Active, substantive replies/content"}
-    if score >= 0:
-        return {"rec": "Maybe", "reason": "Active, some original content; little or no real interaction with you"}
-    return {"rec": "Skip", "reason": "Mostly low-effort or repost content"}
+# v3.5.32: the old recommend() scorer was removed. Follow back / Maybe / Skip comes only from the classify pipeline
+# (run_classify_pipeline / classify / verified_deep_dive); content_value() and reply_quality() stay as its signals.

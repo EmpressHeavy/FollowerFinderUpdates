@@ -1,4 +1,4 @@
-"""Paced follow-backs from a daily verified card, including 'Follow all' (v3.5.24).
+"""Paced follow-backs from a daily verified card, including 'Follow all' (v3.5.24; browser contract v3.5.32).
 
 Runs the owner's picks strictly one at a time, never batched or in parallel, in the signed-in box browser using X's
 normal Follow button flow: open the profile, click Follow, check the button now reads Following. No unusual automation,
@@ -223,93 +223,236 @@ def verify_status(r: dict, user_id: str, following: set | None) -> str:
     return FAILED
 
 
+# ---------- v3.5.32: browser-step contract (what the computerUse subagent gets and must report) ----------
+# The X plugin cannot follow, so the real click happens in a browser subagent on x.com. Everything else (plan, pacing,
+# guards, the append-only log, parsing what the subagent reports, the stop rules and the final verification) lives
+# here and is tested. The only manual / out-of-repo part is the subagent itself clicking the one 'Follow' button.
+OUT_FOLLOWED, OUT_ALREADY, OUT_NEEDS_SIGN_IN, OUT_WARNING = "followed", "already", "needs_sign_in", "warning"
+OUT_FAILED, OUT_MISMATCH = "failed", "profile_mismatch"
+OUTCOMES = (OUT_FOLLOWED, OUT_ALREADY, OUT_NEEDS_SIGN_IN, OUT_WARNING, OUT_FAILED, OUT_MISMATCH)
+REPORT_KEYS = ("signed_in", "profile_matches", "button_before", "clicked", "button_after", "stop", "error")
+NEVER_CLICK = ("Following", "Pending", "Message", "Post", "Like", "Reply", "Repost", "Block", "Mute", "Report")
+_WARN_WORDS = (("rate limit", "rate_limit"), ("rate-limit", "rate_limit"), ("captcha", "challenge"),
+               ("challenge", "challenge"), ("something went wrong", "something_went_wrong"), ("warning", "warning"),
+               ("unusual activity", "warning"), ("suspended", "warning"), ("locked", "warning"))
+
+
+def browser_task(item: dict) -> dict:
+    """Structured per-account instruction for ONE browser subagent run (one account, one click at most)."""
+    return {"task": "x_follow_one", "handle": item["handle"], "url": item["url"], "order": item.get("order"),
+            "expect_handle": "@" + item["handle"].lower(), "pre_click_pause_s": item.get("pre_click_pause_s"),
+            "click_only": "Follow", "never_click": list(NEVER_CLICK),
+            "stop_on": ["sign-in page", "any X warning", "rate limit", "captcha/challenge", "Something went wrong"],
+            "report_keys": list(REPORT_KEYS), "instructions": item.get("steps") or
+            BROWSER_FOLLOW_ONE_STEPS.format(handle=item["handle"], url=item["url"])}
+
+
+def _boolish(v):
+    if isinstance(v, bool) or v is None:
+        return v
+    t = str(v).strip().lower()
+    return True if t in ("true", "yes", "1", "y") else False if t in ("false", "no", "0", "n") else None
+
+
+def parse_browser_result(raw) -> dict:
+    """Normalize what the subagent reported (a dict, a JSON string, or JSON inside prose) into the REPORT_KEYS dict
+    plus 'outcome' (one of OUTCOMES). Free text without JSON is read conservatively: it can stop a run or mark
+    already/needs-sign-in, but it never counts as a follow (a follow needs button_after == 'Following')."""
+    import json as _json
+    import re as _re
+    r: dict = {}
+    if isinstance(raw, dict):
+        r = dict(raw)
+    elif isinstance(raw, str):
+        m = _re.search(r"\{.*\}", raw, _re.S)
+        if m:
+            try:
+                r = _json.loads(m.group(0))
+            except ValueError:
+                r = {}
+        if not r:
+            low = raw.lower()
+            if "sign in" in low or "log in" in low or "signed out" in low or "not signed in" in low:
+                r = {"signed_in": False}
+            else:
+                for w, code in _WARN_WORDS:
+                    if w in low:
+                        r = {"stop": code}
+                        break
+            if not r and ("already following" in low or "already pending" in low):
+                r = {"button_before": "Following" if "following" in low else "Pending", "clicked": False}
+            r.setdefault("error", raw.strip()[:200] or "empty report")
+    for k in ("signed_in", "profile_matches", "clicked"):
+        if k in r:
+            r[k] = _boolish(r[k])
+    if r.get("stop") is not None:
+        s = str(r["stop"]).strip().lower().replace(" ", "_").replace("-", "_")
+        r["stop"] = s if s in STOP_REASONS_V2 else ("warning" if s not in ("", "none", "null", "false") else None)
+    r["outcome"] = outcome(r)
+    return r
+
+
+def outcome(r: dict) -> str:
+    if r.get("signed_in") is False or r.get("stop") == "login_wall":
+        return OUT_NEEDS_SIGN_IN
+    if r.get("stop"):
+        return OUT_WARNING
+    if r.get("profile_matches") is False:
+        return OUT_MISMATCH
+    if _btn(r.get("button_before")) in ("following", "pending") and not r.get("clicked"):
+        return OUT_ALREADY
+    if r.get("clicked") and _btn(r.get("button_after")) in ("following", "pending"):
+        return OUT_FOLLOWED
+    return OUT_FAILED
+
+
+class FollowSession:
+    """Step-by-step driver for the parent bot: one browser subagent per account, strictly one at a time.
+
+        s = FollowSession(user_key, run_id, picks)
+        while (t := s.next_task()):          # t = {'wait_s', 'task' (browser_task), 'item'}
+            wait t['wait_s'];  report = <run one browser subagent with t['task']>
+            s.submit(report)                 # any X warning / sign-in wall ends the session
+        result = s.finish(x)                 # re-reads get_users_me_following; only verified follows count
+    Every step is appended to follow_back.jsonl (never rewritten). Report 'done' to the owner only from finish()."""
+
+    def __init__(self, user_key: str, run_id: str, picks: list[dict], *, confirmations: dict | None = None,
+                 rand: Callable[[float, float], float] = random.uniform, skip: Callable[[dict], str | None] | None = None,
+                 root=None, track_source: str = "follow_back"):
+        try:
+            from . import unfollow_back as ub, blocked_by as bb
+        except ImportError:  # pragma: no cover
+            import unfollow_back as ub
+            import blocked_by as bb
+        self._ub = ub
+        if skip is None:
+            guard, gate = bb.follow_guard(user_key, root), ub.gate_skip(user_key, confirmations, root)
+            skip = lambda p: guard(p) or gate(p)  # noqa: E731
+        self.user_key, self.run_id, self.picks, self.root = user_key, run_id, picks, root
+        self.rand, self.skip, self.track_source = rand, skip, track_source
+        self.plan = build_follow_plan(picks, rand)
+        self.results, self.skipped, self.gaps = [], [], []
+        self.stop = None
+        self.attempted = 0
+        self._i = 0
+        self._pending = None
+        self.finished = None
+
+    def _log(self, ev: dict):
+        vf.append_log(self.user_key, {"run_id": self.run_id, **ev}, self.root)
+
+    def next_task(self) -> dict | None:
+        if self._pending is not None:
+            raise RuntimeError("submit() the current account's report before asking for the next one")
+        if self.stop is not None or self.finished is not None:
+            return None
+        while self._i < len(self.plan):
+            item, pick = self.plan[self._i], self.picks[self._i]
+            why = self.skip(pick)
+            if why:
+                self.skipped.append({**item, "reason": why})
+                self._log({"event": "FOLLOW_SKIPPED", "user_id": item["user_id"], "handle": item["handle"],
+                           "reason": why})
+                self._i += 1
+                continue
+            wait = 0.0
+            if self.attempted:
+                wait = pace_gap(self.attempted, self.rand)
+                self.gaps.append(wait)
+            self._pending = self._i
+            return {"wait_s": wait, "item": item, "task": browser_task(item)}
+        return None
+
+    def submit(self, raw) -> dict:
+        if self._pending is None:
+            raise RuntimeError("no account is waiting for a report")
+        i = self._pending
+        self._pending, self._i = None, i + 1
+        self.attempted += 1
+        item, pick = self.plan[i], self.picks[i]
+        r = parse_browser_result(raw if raw is not None else "")
+        if "button_after" not in r and "verified_following" in r:  # legacy adapter report {'ok','verified_following'}
+            r.setdefault("clicked", bool(r.get("ok") or r.get("verified_following")))
+            r["button_after"] = "Following" if r.get("verified_following") else ("Follow" if r.get("clicked") else None)
+        out = outcome(r)
+        if out == OUT_NEEDS_SIGN_IN:
+            self.stop = {"reason": NEEDS_SIGNIN, "at_handle": item["handle"],
+                         "not_attempted": [{"user_id": q["user_id"], "handle": q["handle"]} for q in self.plan[i:]]}
+            self._log({"event": "FOLLOW_STOPPED", **self.stop})
+            return {"outcome": out, "stop": self.stop}
+        if out == OUT_MISMATCH:
+            self.skipped.append({**item, "reason": "profile_mismatch"})
+            self._log({"event": "FOLLOW_SKIPPED", "user_id": item["user_id"], "handle": item["handle"],
+                       "reason": "profile_mismatch"})
+        elif out == OUT_ALREADY:
+            reason = "already_" + _btn(r.get("button_before"))
+            self.skipped.append({**item, "reason": reason})
+            self._log({"event": "FOLLOW_SKIPPED", "user_id": item["user_id"], "handle": item["handle"], "reason": reason})
+        else:
+            self.results.append({**item, "report": r, "pick": pick})
+            self._log({"event": "FOLLOW_ATTEMPT", "user_id": item["user_id"], "handle": item["handle"],
+                       "clicked": bool(r.get("clicked")), "button_after": r.get("button_after"),
+                       "stop": r.get("stop"), "error": r.get("error")})
+        if r.get("stop"):
+            self.stop = {"reason": r["stop"], "at_handle": item["handle"],
+                         "not_attempted": [{"user_id": q["user_id"], "handle": q["handle"]} for q in self.plan[i + 1:]]}
+            self._log({"event": "FOLLOW_STOPPED", **self.stop})
+        return {"outcome": out, "stop": self.stop}
+
+    def finish(self, x=None) -> dict:
+        """Confirm before reporting done: verify every attempted follow, write FOLLOW_VERIFIED rows, build the one
+        summary. Until this returns, nothing may be reported to the owner as followed."""
+        if self.finished is not None:
+            return self.finished
+        if self._pending is not None:
+            raise RuntimeError("an account is still waiting for its report")
+        ub, user_key, run_id, root = self._ub, self.user_key, self.run_id, self.root
+        following = _following_ids(x) if self.results else None
+        out = {FOLLOWED: [], PENDING: [], FAILED: [], NOT_AVAILABLE: []}
+        for it in self.results:
+            st = verify_status(it["report"], it["user_id"], following)
+            out[st].append(it["handle"])
+            vf.record_follow(user_key, run_id, it["user_id"], it["handle"], st == FOLLOWED,
+                             verified_following=st == FOLLOWED, error=None if st == FOLLOWED else st, root=root)
+            self._log({"event": "FOLLOW_VERIFIED", "user_id": it["user_id"], "handle": it["handle"], "status": st,
+                       "verified_by": FOLLOWING_TOOL if following is not None and it["user_id"] in following else
+                       ("button" if st in (FOLLOWED, PENDING) else None)})
+            if st == FOLLOWED:
+                p = it["pick"]
+                ub.record_follow(user_key, it["user_id"], it["handle"], source=p.get("source", self.track_source),
+                                 run_id=run_id, follows_user=p.get("follows_user"), root=root)
+        out["followed_ids"] = [it["user_id"] for it in self.results if it["handle"] in out[FOLLOWED]]
+        stop, skipped = self.stop, self.skipped
+        status = NEEDS_SIGNIN if stop and stop["reason"] == NEEDS_SIGNIN else ("stopped" if stop else "done")
+        parts = [f"Verified follows: {len(out[FOLLOWED])}" + (f" ({', '.join('@' + h for h in out[FOLLOWED])})"
+                                                              if out[FOLLOWED] else "") + "."]
+        for k, lab in ((PENDING, "Pending (protected account)"), (FAILED, "Failed"), (NOT_AVAILABLE, "Not available")):
+            if out[k]:
+                parts.append(f"{lab}: {', '.join('@' + h for h in out[k])}.")
+        if skipped:
+            parts.append(f"Skipped: {', '.join('@' + s['handle'] + ' (' + s['reason'] + ')' for s in skipped)}.")
+        if status == NEEDS_SIGNIN:
+            parts.append(f"Stopped: {NEEDS_SIGNIN_TEXT}.")
+        elif stop:
+            parts.append(f"Stopped after X showed {stop['reason'].replace('_', ' ')} at @{stop['at_handle']}; "
+                         f"{len(stop['not_attempted'])} not attempted.")
+        self.finished = {"status": status, "plan": self.plan, **out, "skipped": skipped, "stopped": stop,
+                         "gaps": self.gaps, "verified_with": FOLLOWING_TOOL if following is not None else "button_state",
+                         "confirmed": True, "text": " ".join(parts)}
+        return self.finished
+
+
 def run_browser(user_key: str, run_id: str, picks: list[dict], browser_follow: Callable[[dict], dict], *, x=None,
                 confirmations: dict | None = None, sleep: Callable[[float], None] = time.sleep,
                 rand: Callable[[float, float], float] = random.uniform, skip: Callable[[dict], str | None] | None = None,
                 root=None, track_source: str = "follow_back") -> dict:
-    """browser_follow(plan_item) -> the subagent's JSON report (see BROWSER_FOLLOW_ONE_STEPS). x: X plugin client used
-    to re-read get_users_me_following after the batch. confirmations: {user_id: 'Yes'|'No'} from refollow_gate_card."""
-    try:
-        from . import unfollow_back as ub, blocked_by as bb
-    except ImportError:  # pragma: no cover
-        import unfollow_back as ub
-        import blocked_by as bb
-    if skip is None:
-        guard, gate = bb.follow_guard(user_key, root), ub.gate_skip(user_key, confirmations, root)
-        skip = lambda p: guard(p) or gate(p)  # noqa: E731
-    plan = build_follow_plan(picks, rand)
-    results, skipped, gaps = [], [], []
-    stop = None
-    attempted = 0
-
-    def log(ev: dict):
-        vf.append_log(user_key, {"run_id": run_id, **ev}, root)
-
-    for i, item in enumerate(plan):
-        why = skip(picks[i])
-        if why:
-            skipped.append({**item, "reason": why})
-            log({"event": "FOLLOW_SKIPPED", "user_id": item["user_id"], "handle": item["handle"], "reason": why})
-            continue
-        if attempted:
-            g = pace_gap(attempted, rand)
-            gaps.append(g)
-            sleep(g)
-        attempted += 1
-        r = dict(browser_follow(item) or {})
-        if "button_after" not in r and "verified_following" in r:  # legacy adapter report {'ok','verified_following'}
-            r.setdefault("clicked", bool(r.get("ok") or r.get("verified_following")))
-            r["button_after"] = "Following" if r.get("verified_following") else ("Follow" if r.get("clicked") else None)
-        if r.get("signed_in") is False or r.get("stop") == "login_wall":
-            stop = {"reason": NEEDS_SIGNIN, "at_handle": item["handle"],
-                    "not_attempted": [{"user_id": q["user_id"], "handle": q["handle"]} for q in plan[i:]]}
-            log({"event": "FOLLOW_STOPPED", **stop})
-            break
-        if r.get("profile_matches") is False:
-            skipped.append({**item, "reason": "profile_mismatch"})
-            log({"event": "FOLLOW_SKIPPED", "user_id": item["user_id"], "handle": item["handle"],
-                 "reason": "profile_mismatch"})
-        elif _btn(r.get("button_before")) in ("following", "pending") and not r.get("clicked"):
-            reason = "already_" + _btn(r.get("button_before"))
-            skipped.append({**item, "reason": reason})
-            log({"event": "FOLLOW_SKIPPED", "user_id": item["user_id"], "handle": item["handle"], "reason": reason})
-        else:
-            results.append({**item, "report": r, "pick": picks[i]})
-            log({"event": "FOLLOW_ATTEMPT", "user_id": item["user_id"], "handle": item["handle"],
-                 "clicked": bool(r.get("clicked")), "button_after": r.get("button_after"),
-                 "stop": r.get("stop"), "error": r.get("error")})
-        if r.get("stop"):
-            stop = {"reason": r["stop"], "at_handle": item["handle"],
-                    "not_attempted": [{"user_id": q["user_id"], "handle": q["handle"]} for q in plan[i + 1:]]}
-            log({"event": "FOLLOW_STOPPED", **stop})
-            break
-    following = _following_ids(x) if results else None
-    out = {FOLLOWED: [], PENDING: [], FAILED: [], NOT_AVAILABLE: []}
-    for it in results:
-        st = verify_status(it["report"], it["user_id"], following)
-        out[st].append(it["handle"])
-        vf.record_follow(user_key, run_id, it["user_id"], it["handle"], st == FOLLOWED,
-                         verified_following=st == FOLLOWED, error=None if st == FOLLOWED else st, root=root)
-        log({"event": "FOLLOW_VERIFIED", "user_id": it["user_id"], "handle": it["handle"], "status": st,
-             "verified_by": FOLLOWING_TOOL if following is not None and it["user_id"] in following else
-             ("button" if st in (FOLLOWED, PENDING) else None)})
-        if st == FOLLOWED:
-            p = it["pick"]
-            ub.record_follow(user_key, it["user_id"], it["handle"], source=p.get("source", track_source),
-                             run_id=run_id, follows_user=p.get("follows_user"), root=root)
-    out["followed_ids"] = [it["user_id"] for it in results if it["handle"] in out[FOLLOWED]]
-    status = NEEDS_SIGNIN if stop and stop["reason"] == NEEDS_SIGNIN else ("stopped" if stop else "done")
-    parts = [f"Verified follows: {len(out[FOLLOWED])}" + (f" ({', '.join('@' + h for h in out[FOLLOWED])})"
-                                                          if out[FOLLOWED] else "") + "."]
-    for k, lab in ((PENDING, "Pending (protected account)"), (FAILED, "Failed"), (NOT_AVAILABLE, "Not available")):
-        if out[k]:
-            parts.append(f"{lab}: {', '.join('@' + h for h in out[k])}.")
-    if skipped:
-        parts.append(f"Skipped: {', '.join('@' + s['handle'] + ' (' + s['reason'] + ')' for s in skipped)}.")
-    if status == NEEDS_SIGNIN:
-        parts.append(f"Stopped: {NEEDS_SIGNIN_TEXT}.")
-    elif stop:
-        parts.append(f"Stopped after X showed {stop['reason'].replace('_', ' ')} at @{stop['at_handle']}; "
-                     f"{len(stop['not_attempted'])} not attempted.")
-    return {"status": status, "plan": plan, **out, "skipped": skipped, "stopped": stop, "gaps": gaps,
-            "verified_with": FOLLOWING_TOOL if following is not None else "button_state", "text": " ".join(parts)}
+    """browser_follow(plan_item) -> the subagent's report (dict, or text parsed by parse_browser_result). x: X plugin
+    client used to re-read get_users_me_following after the batch. confirmations: {user_id: 'Yes'|'No'} from
+    refollow_gate_card. Thin loop over FollowSession."""
+    s = FollowSession(user_key, run_id, picks, confirmations=confirmations, rand=rand, skip=skip, root=root,
+                      track_source=track_source)
+    while (t := s.next_task()) is not None:
+        if t["wait_s"]:
+            sleep(t["wait_s"])
+        s.submit(browser_follow(t["item"]))
+    return s.finish(x)

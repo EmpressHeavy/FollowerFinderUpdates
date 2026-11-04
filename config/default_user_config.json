@@ -66,8 +66,9 @@
     "title": "Follower Finder Log"
   },
   "runtime_note": "Locked to Grok Bot mode: Google Sheets + Google Drive are rechecked each session; the standalone path needs its own config plus FOLLOWER_FINDER_STANDALONE=1 and is not part of this template.",
-  "daily_removal_cap": 10,
-  "inactive_mutuals_per_day": 3,
+  "daily_removal_cap": null,
+  "inactive_mutuals_per_day": null,
+  "limits_note": "v3.5.32: null = no daily limit (default). Removals still need your explicit picks, come in cards of up to 5 and stop on any X warning or when you say stop. Set a number (1-100) here or from the monthly check-in to add a limit.",
   "review_schedule": {
     "preset": "daily",
     "time": "18:00",

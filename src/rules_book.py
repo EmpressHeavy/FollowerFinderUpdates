@@ -19,6 +19,10 @@ SECTIONS = ["Job", "Always kept", "How bots are judged", "Lists", "Approval and 
             "Lessons learned", "Change log"]
 
 
+def _lim(v, unit: str, none_text: str) -> str:
+    return none_text if v is None else (f"{v} {unit}".strip())
+
+
 def render(cfg: dict, root=None, *, today: str | None = None) -> str:
     base = Path(root) if root is not None else PROJECT_ROOT
     tpl = (base / "templates" / "follower_finder_book.md").read_text(encoding="utf-8")
@@ -26,8 +30,8 @@ def render(cfg: dict, root=None, *, today: str | None = None) -> str:
     tr = cfg.get("terminate_reminder") or {}
     prot = ", ".join("@" + h.lstrip("@") for h in cfg.get("protected_handles") or []) or "none yet"
     return tpl.format(handle=cfg.get("owner_x_handle") or "your account", protected=prot,
-                      mutuals_per_day=cfg.get("inactive_mutuals_per_day", 3),
-                      daily_cap=cfg.get("daily_removal_cap", 10),
+                      mutuals_per_day=_lim(cfg.get("inactive_mutuals_per_day"), "per day", "up to 5 per card, no daily limit"),
+                      daily_cap=_lim(cfg.get("daily_removal_cap"), "", "no daily limit (you pick every removal)"),
                       sheet_title=(cfg.get("sheets") or {}).get("title") or "Follower Finder Log",
                       scan_time=scan.get("time") or "not set", time_zone=cfg.get("time_zone") or "local time",
                       lists="on" if (cfg.get("lists") or {}).get("enabled") else "off",

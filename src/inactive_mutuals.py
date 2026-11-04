@@ -1,8 +1,8 @@
 """Inactive mutuals (beta feedback 2026-10-20).
 
 A mutual = a follower the owner follows back. Mutuals are protected and are NEVER removed automatically or put
-on a removal card. Mutuals that look inactive (dated evidence only) are shown a few per day (default 3) on a
-SEPARATE card. Only an account the owner explicitly marks there is authorized for "Remove this follower" (it does
+on a removal card. Mutuals that look inactive (dated evidence only) are shown on a SEPARATE card of up to 5
+(v3.5.32: no daily limit by default; an optional owner-set inactive_mutuals_per_day still caps it). Only an account the owner explicitly marks there is authorized for "Remove this follower" (it does
 not unfollow them; owner-requested unfollows are out of scope). Every other protection still applies at removal
 time (verified, Always Keep, Keepers, recent interactions; confirmed on X afterwards).
 """
@@ -21,7 +21,7 @@ except ImportError:  # pragma: no cover
     import removal_runner as rr
     import card_text as ct
 
-DEFAULT_PER_DAY = 3
+DEFAULT_PER_DAY = None  # v3.5.32: uncapped by default; cards of up to CARD_SIZE (5)
 AUTH = "MUTUAL_REMOVE_OWNER_YES"
 
 
@@ -33,10 +33,13 @@ def build_card(user_key: str, snapshot_id: str, root=None, *, today: str | None 
     """Pick up to inactive_mutuals_per_day not-yet-shown inactive mutuals; returns {links_message, card_spec,
     accounts} or {"accounts": []}. Never shown twice; never more than the daily number per day."""
     cfg = st.load_user_config_dict(root, user_key=user_key)
-    per_day = max(0, min(int(cfg.get("inactive_mutuals_per_day", DEFAULT_PER_DAY)), ct.CARD_SIZE))
+    try:
+        per_day = rr.parse_limit(cfg.get("inactive_mutuals_per_day", DEFAULT_PER_DAY))
+    except ValueError:
+        per_day = DEFAULT_PER_DAY
     today = today or dt.datetime.now(rr._tz(cfg)).date().isoformat()
     shown = st.load_json(_shown_path(user_key, root), {}) or {}
-    left = per_day - sum(1 for v in shown.values() if v == today)
+    left = ct.CARD_SIZE if per_day is None else min(ct.CARD_SIZE, per_day - sum(1 for v in shown.values() if v == today))
     rows = json.loads((st.snapshot_dir(snapshot_id, root, user_key=user_key) / "candidates.json").read_text())
     keep = st.load_always_keep(root, user_key=user_key)
     keep_keys = {rr.st_key(k) if isinstance(k, dict) else str(k).lstrip("@").lower() for k in keep}

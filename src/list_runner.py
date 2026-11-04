@@ -158,7 +158,7 @@ def run_list_removals(user_key: str, snapshot_id: str, adapter, *, root=None, no
         emit = lambda e: _emit(user_key, root, e, on_logged)  # noqa: E731
         try:
             for r in chosen:
-                if used + SOFT_WEIGHT > cap:
+                if rr.cap_hit(used, cap, SOFT_WEIGHT):
                     stopped = {"reason": "daily cap", "message": f"{used}/{cap} actions today"}; break
                 at = now_fn().isoformat()
                 why = _protected_owner(r, cfg, keep)
@@ -230,7 +230,7 @@ def run_list_removals(user_key: str, snapshot_id: str, adapter, *, root=None, no
                        "message": f"the List Graveyard / Book write failed ({exc}); saved locally, run stopped; "
                                   "list_flow.catch_up() writes what is missing"}
         st.apply_user_permissions(user_key, root)
-        print(f"Lists left: {len(left)}\nSkipped: {len(skipped)}\nActions today: {used}/{cap}\n"
+        print(f"Lists left: {len(left)}\nSkipped: {len(skipped)}\nActions today: {used}/{cap if cap is not None else 'no limit'}\n"
               f"Stopped: {(stopped['reason'] + ' - ' + stopped['message']) if stopped else 'no'}", file=out)
         return {"left": left, "skipped": skipped, "actions_today": used, "daily_cap": cap, "stopped": stopped}
 
@@ -277,7 +277,7 @@ def run_owner_blocks(user_key: str, list_snapshot_id: str, adapter, *, root=None
         used = rr.removals_today(hist, today, tz)
         blocked, skipped, stopped, first = [], [], None, True
         for r in [c for c in chosen if _okey(c) not in done]:
-            if used + 1 > cap:
+            if rr.cap_hit(used, cap):
                 stopped = {"reason": "daily cap", "message": f"{used}/{cap} actions today"}; break
             why = _protected_owner(r, cfg, keep)
             own = adapter.owner_state(dict(r)) or {}
@@ -307,7 +307,7 @@ def run_owner_blocks(user_key: str, list_snapshot_id: str, adapter, *, root=None
             if b2 is not True:
                 stopped = {"reason": "not confirmed", "message": "could not confirm the block on X"}; break
             blocked.append(r["owner_handle"])
-        print(f"Blocked: {len(blocked)}\nSkipped: {len(skipped)}\nActions today: {used}/{cap}", file=out)
+        print(f"Blocked: {len(blocked)}\nSkipped: {len(skipped)}\nActions today: {used}/{cap if cap is not None else 'no limit'}", file=out)
         return {"blocked": blocked, "skipped": skipped, "stopped": stopped, "actions_today": used}
 
 

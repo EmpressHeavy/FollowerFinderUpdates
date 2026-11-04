@@ -12,7 +12,8 @@ This module makes no network calls and uses no outside translation service. The 
 translated text.
 
 Language: X's per-post `lang` field. Undetermined codes (und, zxx, qme, qht, qam, qst, art) are ignored. If no post
-has a usable lang, the local `langdetect` package is used only when it is installed. "Mostly" means at least
+has a usable lang, the bundled lang_detect module (script + stopword detector, stdlib only) reads the post text;
+the optional `langdetect` package is asked only when it is installed and the bundled detector is unsure. "Mostly" means at least
 min_foreign_share (0.6) of lang-tagged posts are in one language.
 """
 from __future__ import annotations
@@ -61,12 +62,12 @@ def language_name(code: str) -> str:
 def dominant_language(posts: Iterable[dict], cfg: dict | None = None) -> tuple[str | None, float]:
     posts = list(posts)
     langs = [_base(p.get("lang")) for p in posts if _base(p.get("lang")) and _base(p.get("lang")) not in IGNORE]
-    if not langs:
-        try:  # optional local fallback, only if already installed
-            from langdetect import detect  # type: ignore
-            langs = [_base(detect(p["text"])) for p in posts if (p.get("text") or "").strip()]
-        except Exception:  # noqa: BLE001
-            return None, 0.0
+    if not langs:  # v3.5.32: bundled detector (stdlib only); langdetect is used only if installed and unsure
+        try:
+            from . import lang_detect as ld
+        except ImportError:  # pragma: no cover
+            import lang_detect as ld
+        langs = [c for c in (ld.detect_best(p.get("text")) for p in posts if (p.get("text") or "").strip()) if c]
     if not langs:
         return None, 0.0
     lang, n = Counter(langs).most_common(1)[0]

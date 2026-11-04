@@ -10,8 +10,10 @@ This module never talks to X itself. It:
      that run MAY have finished some removals on X: reconcile_interrupted_run() checks each account on X first;
   3b. the recheck also covers recent interactions with the owner (adapter searches X both ways), mutuals (you follow
      them), verified, Always Keep and Keepers (Not a bot). Missing interaction data = protected;
-  4. caps removals at daily_removal_cap per user per calendar day in the user's time zone (asked at setup; suggested
-     start 10; default 10 if never set; never > 100),
+  4. v3.5.32: NO daily cap by default (daily_removal_cap = null), matching the no-daily-cap review design. Removals
+     still need the owner's explicit picks, go in cards of up to 5, and stop on any X warning or when the owner says
+     stop. An optional owner-set limit (preferences / monthly check-in, 1-100) caps removals per calendar day in the
+     user's time zone,
      counting earlier removals AND Graveyard-return blocks today from history (one shared cap);
   5. paces removals with a FIXED interval (PACING_SECONDS, no jitter);
   6. stops on the first X warning or rate limit, records it and refuses further removals and blocks that day;
@@ -56,7 +58,7 @@ except ImportError:  # pragma: no cover
 
 PACING_SECONDS = 10.0          # fixed; no random jitter or human-mimicking timing
 MAX_DAILY_CAP = 100            # hard ceiling; config may only lower it
-DEFAULT_DAILY_CAP = 10         # 2026-10-20: the cap is asked at setup (user picks, max 100); suggest starting low
+DEFAULT_DAILY_CAP = None       # v3.5.32: uncapped unless the owner sets a limit (1-100)
 SUGGESTED_START_CAP = 10
 LOCK_NAME = "run.lock"
 DEFAULT_MAX_SNAPSHOT_AGE_DAYS = 7
@@ -107,12 +109,42 @@ def _tz(cfg: dict) -> dt.tzinfo:
     return dt.datetime.now().astimezone().tzinfo  # machine's local zone
 
 
-def daily_cap(cfg: dict) -> int:
+def parse_limit(v, ceiling: int = MAX_DAILY_CAP) -> int | None:
+    """None / '' / 'none' / 'no limit' / 'unlimited' / 'off' -> None (uncapped). A number -> clamped to 1..ceiling.
+    Anything else raises ValueError."""
+    if v is None or isinstance(v, bool):
+        if isinstance(v, bool):
+            raise ValueError("limit must be a number or 'no limit'")
+        return None
+    if isinstance(v, str):
+        t = v.strip().lower()
+        if t in ("", "none", "null", "no limit", "no cap", "unlimited", "off", "uncapped"):
+            return None
+        v = t
     try:
-        v = int(cfg.get("daily_removal_cap", DEFAULT_DAILY_CAP))
+        n = int(v)
     except (TypeError, ValueError):
-        v = DEFAULT_DAILY_CAP
-    return max(0, min(v, MAX_DAILY_CAP))
+        raise ValueError("limit must be a whole number or 'no limit'") from None
+    if n < 1:
+        raise ValueError("limit must be at least 1 (or 'no limit')")
+    return min(n, ceiling)
+
+
+def daily_cap(cfg: dict) -> int | None:
+    """None = no daily cap (v3.5.32 default). An owner-set number is honoured, never above MAX_DAILY_CAP."""
+    try:
+        return parse_limit(cfg.get("daily_removal_cap", DEFAULT_DAILY_CAP))
+    except ValueError:
+        return DEFAULT_DAILY_CAP
+
+
+def cap_hit(used: int, cap: int | None, weight: int = 1) -> bool:
+    """True when doing `weight` more actions would go over an owner-set cap. Never true when uncapped."""
+    return cap is not None and used + weight > cap
+
+
+def cap_text(cap: int | None) -> str:
+    return "no daily limit" if cap is None else f"{cap} per day"
 
 
 def _local_day(ts: str, tz) -> str | None:
@@ -287,7 +319,7 @@ def _run_removals(user_key: str, snapshot_id: str, adapter: RemovalAdapter, *, r
     accounts = [a for a in accounts if st_key(a) not in returnees]
     cap = daily_cap(cfg)
     used = removals_today(hist, today, tz)
-    if used >= cap:
+    if cap_hit(used, cap):
         raise RefusedError(f"daily cap reached ({used}/{cap} removals today)")
 
     always_keep = st.load_always_keep(root, user_key=user_key)
@@ -297,7 +329,7 @@ def _run_removals(user_key: str, snapshot_id: str, adapter: RemovalAdapter, *, r
     stopped = None
     first = True
     for a in accounts:
-        if used >= cap:
+        if cap_hit(used, cap):
             stopped = {"reason": "daily cap", "message": f"{cap} removals today"}
             break
         fresh = adapter.lookup(dict(a)) or {}
@@ -363,7 +395,7 @@ def _run_removals(user_key: str, snapshot_id: str, adapter: RemovalAdapter, *, r
                "stopped_message": stopped["message"] if stopped else None}
     lines = [f"Start follower count: {start_followers if start_followers is not None else 'Not available'}",
              f"Removed: {len(removed)}", f"Skipped (protected): {len(skipped)}",
-             f"Removals today: {used}/{cap}",
+             f"Removals today: {used}/{cap if cap is not None else 'no limit'}",
              f"Stopped: {stopped['reason'] + (' - ' + stopped['message'] if stopped['message'] else '') if stopped else 'no'}"]
     if stopped and stopped["reason"] in ("warning", "rate limit"):
         lines.append("No more removals today. Resume tomorrow with a new authorized run.")

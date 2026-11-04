@@ -8,6 +8,7 @@ v3.5.0: a companion line shows the records backup (GitHub / cloud CSV / download
 v3.5.18: when allow_reply_heavy is passed (preferences.get_allow_reply_heavy), a companion line shows the engagement
 preference (reply-heavy accounts included / scored down, default) under 6-7; tapping it re-asks preferences.CARD_STEP.
 v3.3.0: a companion line shows the optional memory backup (on/off + private repo; default off), under 6-7.
+v3.5.32: limits_cfg adds 'daily_limits' (no limit by default; optional owner limit).
 v3.5.28: 'unfollow_back_check' says the unfollow-back check (unfollow_back.run_monthly) runs with this check-in.
 The card stays at 6 options: when setting 8 exists, it folds into the '6-8' button.
 """
@@ -59,7 +60,7 @@ def lists_line(lists_enabled: bool | None) -> str | None:
 
 def build(prior_cleanup: dict | None = None, lists_enabled: bool | None = None, cfg: dict | None = None,
           allow_reply_heavy: bool | None = None, situational: dict | None = None,
-          review_schedule: dict | None = None) -> dict:
+          review_schedule: dict | None = None, limits_cfg: dict | None = None) -> dict:
     """lists_enabled (from the user's config) adds a companion line that says whether list checks are on.
     cfg (the user's own config) fills the Terminate reminder line (on/off, time) and the front-door reminder state;
     without it the line shows the default: OFF."""
@@ -77,6 +78,9 @@ def build(prior_cleanup: dict | None = None, lists_enabled: bool | None = None, 
            "unfollow_back_check": UNFOLLOW_BACK_LINE}
     if situational is not None:
         out["situational_settings"] = situational_section(situational)
+    if limits_cfg is not None:  # v3.5.32: optional daily limits (default none); re-ask prefs.LIMITS_CARD on tap
+        out["daily_limits"] = {"line": prefs.limits_line(limits_cfg), "change_option": "Change daily limits",
+                               "on_change": "re-ask preferences.LIMITS_CARD, save with preferences.set_limits"}
     if review_schedule is not None:
         out["review_schedule"] = {"line": "Review schedule: " + review_schedule.get("description", review_schedule.get("cron", "")),
                                   "change_option": "Change review schedule",

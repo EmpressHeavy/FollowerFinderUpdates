@@ -4,7 +4,7 @@
         [--reminder] [--protect @someone ...] [--manual]
         [--terminate-reminder yes --terminate-time 18:00]   # optional daily chat nudge; default no
 
-Asked at setup: the daily removal cap (1-100; start low, e.g. 10) and the daily scan time (HH:MM, your time
+Asked at setup: an optional daily removal limit (default no limit; or 1-100, e.g. 10) and the daily scan time (HH:MM, your time
 zone), whether to check the lists you're on (default: no). Setup then has the bot create the "Follower Finder Book"
 rules doc and the log sheet (Actions, Keepers, In review, List Graveyard, Kept Lists, Protected Lists; the three list
 tabs are created either way so turning list checks on later needs no sheet change) with the connector plans returned
@@ -39,8 +39,8 @@ except ImportError:  # pragma: no cover
 MAX_DAILY_CAP = 100
 SUGGESTED_DAILY_CAP = 10
 SETUP_QUESTIONS = [
-    f"How many followers may I remove per day at most? (1-{MAX_DAILY_CAP}; I suggest starting low, e.g. "
-    f"{SUGGESTED_DAILY_CAP})",
+    f"Want a daily limit on removals? (default: no limit; you still pick every removal, cards of up to 5, and I stop "
+    f"at any X warning. Or type a number 1-{MAX_DAILY_CAP}, e.g. {SUGGESTED_DAILY_CAP})",
     "What time should I run the daily scan? (e.g. 09:00, your time zone)",
     "Want a reminder through your front-door bot when the daily cards are ready? (yes/no; this is a ping through a "
     "different bot, separate from the chat nudge asked below)",
@@ -52,17 +52,23 @@ SETUP_QUESTIONS = [
 ]
 
 
-def validate_cap(cap) -> int:
+NO_LIMIT_WORDS = ("no limit", "none", "unlimited", "no cap", "uncapped", "off")
+
+
+def validate_cap(cap) -> int | None:
+    """v3.5.32: None or 'no limit' = uncapped (default). Otherwise a whole number 1..MAX_DAILY_CAP."""
+    if cap is None or (isinstance(cap, str) and cap.strip().lower() in NO_LIMIT_WORDS):
+        return None
     try:
         n = int(cap)
     except (TypeError, ValueError):
-        raise ValueError(f"daily cap must be a whole number from 1 to {MAX_DAILY_CAP}") from None
+        raise ValueError(f"daily cap must be a whole number from 1 to {MAX_DAILY_CAP}, or 'no limit'") from None
     if isinstance(cap, bool) or not 1 <= n <= MAX_DAILY_CAP:
-        raise ValueError(f"daily cap must be from 1 to {MAX_DAILY_CAP} (suggested start: {SUGGESTED_DAILY_CAP})")
+        raise ValueError(f"daily cap must be from 1 to {MAX_DAILY_CAP} (or 'no limit')")
     return n
 
 
-def create_user(user_key: str, handle: str, *, daily_cap, scan_time: str, lists_enabled: bool = False, reminder: bool = False,
+def create_user(user_key: str, handle: str, *, daily_cap=None, scan_time: str, lists_enabled: bool = False, reminder: bool = False,
                 terminate_reminder_on: bool = False, terminate_reminder_time: str | None = None,
                 memory_backup: bool = False, memory_backup_repo: str | None = None,
                 root: str | Path | None = None, protected_handles=(), manual: bool = False,
@@ -116,7 +122,7 @@ def main(argv=None) -> int:
     a = argparse.ArgumentParser(description="Create a new Follower Finder owner config")
     a.add_argument("--user", required=True); a.add_argument("--handle", required=True)
     a.add_argument("--protect", action="append", default=[]); a.add_argument("--manual", action="store_true")
-    a.add_argument("--daily-cap", required=True, type=int, help="1-100; start low, e.g. 10")
+    a.add_argument("--daily-cap", default=None, help="optional daily removal limit 1-100, or 'no limit' (default)")
     a.add_argument("--scan-time", required=True, help="HH:MM daily scan time"); a.add_argument("--reminder", action="store_true")
     a.add_argument("--terminate-reminder", choices=("yes", "no"), default="no",
                    help="the bot's own daily chat nudge 'Hey, want to terminate some bots?' (default: no; needs --terminate-time)")

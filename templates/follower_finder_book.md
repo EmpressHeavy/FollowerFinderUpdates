@@ -6,7 +6,7 @@ Your rules for Follower Finder. I read this before every scan and every removal,
 Find bot and spam followers on {handle} and remove them as followers, only after you mark them on a card. Removing a follower does not block or unfollow anyone.
 
 ## Always kept
-- Accounts you follow (mutuals). Inactive mutuals are only shown on their own card, {mutuals_per_day} per day, never removed automatically.
+- Accounts you follow (mutuals). Inactive mutuals are only shown on their own card ({mutuals_per_day}), never removed automatically.
 - Verified accounts.
 - Anyone who has interacted with you recently (I search X both ways right before each removal).
 - Your Keepers ("Not a bot" / "Always Keep") and protected accounts: {protected}
@@ -23,7 +23,7 @@ List checks: {lists} (off by default; you choose at setup and can change it in t
 
 ## Approval and pace
 - Cards in groups of 5. Mark the ones to remove, or "Mark all for termination". Unmarked accounts will be kept in review.
-- Daily removal cap: {daily_cap} (max 100).
+- Daily removal limit: {daily_cap} (optional; max 100 when set).
 - One removal run at a time. Each removal is confirmed on X before it's logged.
 
 ## Where things live

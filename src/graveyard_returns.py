@@ -244,13 +244,13 @@ def _run_blocks(user_key: str, snapshot_id: str, adapter, *, root=None,
     accounts = [a for a in accounts if rr.st_key(a) not in done]
     cap = rr.daily_cap(cfg)
     used = rr.removals_today(hist, today, tz)
-    if used >= cap:
+    if rr.cap_hit(used, cap):
         raise rr.RefusedError(f"daily cap reached ({used}/{cap} actions today)")
     always_keep = st.load_always_keep(root, user_key=user_key)
     protected = cfg.get("protected_handles") or []
     blocked, skipped, stopped, first = [], [], None, True
     for a in accounts:
-        if used >= cap:
+        if rr.cap_hit(used, cap):
             stopped = {"reason": "daily cap", "message": f"{cap} actions today"}
             break
         key = rr.st_key(a)
@@ -289,7 +289,7 @@ def _run_blocks(user_key: str, snapshot_id: str, adapter, *, root=None,
         break
     st.apply_user_permissions(user_key, root)
     lines = [f"Graveyard returns blocked: {len(blocked)}", f"Skipped (protected): {len(skipped)}",
-             f"Actions today (removals + blocks): {used}/{cap}",
+             f"Actions today (removals + blocks): {used}/{cap if cap is not None else 'no limit'}",
              f"Stopped: {stopped['reason'] + (' - ' + stopped['message'] if stopped['message'] else '') if stopped else 'no'}"]
     if stopped and stopped["reason"] in ("warning", "rate limit"):
         lines.append("No more removals or blocks today. Resume tomorrow with a new authorized run.")

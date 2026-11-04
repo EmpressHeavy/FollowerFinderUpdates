@@ -164,3 +164,68 @@ def set_review_schedule(user_key: str, sched: dict, *, source: str = "owner card
         import review_schedule as rs
     rs.validate_cron(sched.get("cron", ""))
     return mem.fact(user_key, SUBJECT, REVIEW_SCHEDULE, json.dumps(sched, sort_keys=True), source=source, root=root)
+
+
+# v3.5.32: optional daily limits. Default = no limit (None). Removals still need explicit picks, run in cards of up
+# to 5 and stop on any X warning or when the owner says stop. A limit the owner sets is written to their config.json
+# (where the runners read it) and remembered as a fact.
+LIMITS = "daily_limits"
+LIMIT_KEYS = ("daily_removal_cap", "inactive_mutuals_per_day")
+LIMITS_CARD = {
+    "question": ("Want a daily limit? Default is no limit: you still pick every removal, I show at most 5 per card "
+                 "and stop at the first X warning. Type a number (1-100) for removals per day, or 'no limit'."),
+    "choices": ["No limit (default)", "Set a removals-per-day limit", "Set an inactive-mutuals-per-day limit"],
+    "multi_select": False,
+}
+
+
+def get_limits(cfg: dict) -> dict:
+    try:
+        from . import removal_runner as rr
+    except ImportError:
+        import removal_runner as rr
+    out = {}
+    for k in LIMIT_KEYS:
+        try:
+            out[k] = rr.parse_limit(cfg.get(k))
+        except ValueError:
+            out[k] = None
+    return out
+
+
+def limits_line(cfg: dict | None) -> str:
+    lim = get_limits(cfg or {})
+    r, m = lim["daily_removal_cap"], lim["inactive_mutuals_per_day"]
+    return ("Daily limits: removals " + ("no limit" if r is None else f"{r}/day") +
+            ", inactive mutuals " + ("no limit (cards of 5)" if m is None else f"{m}/day") +
+            ". Tap to set or clear a limit.")
+
+
+def set_limits(user_key: str, *, root=None, source: str = "owner card", **limits) -> dict:
+    """set_limits(uk, daily_removal_cap=20) / (inactive_mutuals_per_day='no limit'). Validates, writes config.json."""
+    import json
+    try:
+        from . import removal_runner as rr
+        from . import storage as st
+    except ImportError:
+        import removal_runner as rr
+        import storage as st
+    bad = set(limits) - set(LIMIT_KEYS)
+    if bad:
+        raise ValueError(f"unknown limit(s): {sorted(bad)}")
+    clean = {k: rr.parse_limit(v) for k, v in limits.items()}
+    p = st.user_config_path(root, user_key=user_key)
+    if p is None:
+        raise ValueError("no config for this user")
+    cfg = st.load_user_config_dict(root, user_key=user_key)
+    cfg.update(clean)
+    st.save_json(p, cfg)
+    try:
+        st.apply_user_permissions(user_key, root)
+    except Exception:
+        pass
+    try:
+        mem.fact(user_key, SUBJECT, LIMITS, json.dumps(get_limits(cfg), sort_keys=True), source=source, root=root)
+    except Exception:  # memory is best-effort; config.json is the source of truth
+        pass
+    return get_limits(cfg)
