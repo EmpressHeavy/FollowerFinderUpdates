@@ -1,7 +1,7 @@
 # Changelog
 
 ## v3.5.33
-- Unfollows now use the three-dot 'More' menu on the profile ('Unfollow @handle', then confirm), and each one is checked by reloading the profile. If I'm not following an account, I skip it, and I never touch Block, Mute or Report. Every wait is now a few short waits, so the browser can keep up.
+- Unfollows try the three-dot 'More' menu first. When it has no Unfollow item (the usual case on desktop), I close it and use the main 'Following' button, then confirm 'Unfollow' right away, and each one is checked by reloading the profile. If I'm not following an account, I skip it, and I never touch Block, Mute or Report. Every wait is now a few short waits, so the browser can keep up.
 - Follows and unfollows are clicked in my own browser on x.com, so setup now checks that browser is signed in to YOUR X account (right after the X connector check). If it isn't, a sign-in card lets you sign in on my desktop or through a secure login form. I never ask for your password in chat.
 - Recommended: save your X login to your vault so I can sign back in on my own if the session drops. A 2FA code or captcha still needs you.
 - Before every follow or unfollow batch I confirm the signed-in @handle is yours. If a different account is signed in, or none is, I stop before clicking anything.

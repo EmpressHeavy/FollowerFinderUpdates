@@ -77,7 +77,8 @@ BROWSER_UNFOLLOW_STEPS = (
     "Browser step: unfollow ONLY the accounts the owner ticked (monthly unfollow-back card or 30-day window card), in "
     "the bot's own browser on x.com, signed in as the owner (x_web_session preflight first). Strictly one at a time, "
     "in order; never in parallel. Use each account's own task (BROWSER_UNFOLLOW_ONE_STEPS): open the three-dot 'More' "
-    "menu on the profile header, click 'Unfollow @handle', confirm 'Unfollow' if asked, reload and check the main "
+    "menu; click 'Unfollow @handle' if it is there, otherwise Escape and click the main 'Following' button; then "
+    "promptly confirm 'Unfollow', reload and check the main "
     "button reads 'Follow'. Never click Block, Mute, Report or any other menu item. STOP the whole run on any X "
     "warning, rate-limit notice, challenge/captcha or login wall. Between accounts wait the gap unfollow_back gives "
     "you (natural human pace: about 20-45 s randomized, 2-5 s pause after the profile loads, ~2-4 min break after "
@@ -90,23 +91,26 @@ BROWSER_UNFOLLOW_ONE_STEPS = (
     "2. Confirm the profile's @handle is exactly @{handle} (case-insensitive). If not, report profile_matches=false and "
     "stop. Then wait a random 2-5 s (one short wait), like a person reading the profile.\n"
     "3. Open the three-dot 'More' menu in the upper right of the profile header (the button with aria-label 'More', "
-    "next to the main Follow/Following button). Do not use the main 'Following' button.\n"
-    "4. In that dropdown, click 'Unfollow @{handle}' and nothing else. Never click Block, Mute, Report or any other "
-    "menu item. If the menu has no 'Unfollow @{handle}' item (you are not following them), close the menu (Escape or "
-    "click outside it), click nothing else, and report not_following=true.\n"
-    "5. If a confirm dialog appears, click its 'Unfollow' button (never 'Cancel' then retry, never anything else).\n"
+    "next to the main Follow/Following button). If that dropdown has 'Unfollow @{handle}', click it (path_used=menu) "
+    "and go to step 5. Never click Block, Mute, Report or any other menu item.\n"
+    "4. If the menu has no 'Unfollow @{handle}' item (the desktop menu usually doesn't), press Escape to close it, then "
+    "read the main profile button. If it reads 'Follow', you are not following them: click nothing, report "
+    "not_following=true and stop. If it reads 'Following', click it (path_used=main_button).\n"
+    "5. A confirm dialog appears: act on it promptly (it can vanish) and click its 'Unfollow' button, never anything "
+    "else. If it vanished before you could click, report confirmed=false rather than retrying blindly.\n"
     "6. Reload the profile page and read the main profile button. It must read 'Follow'. Report button_after, and "
     "verified_unfollowed=true only if it reads 'Follow'.\n"
     "7. If X shows any warning, rate-limit notice, challenge/captcha, 'Something went wrong' dialog or login wall, "
     "report stop=<reason> right away.\n"
     "Waits: " + fx.WAIT_TEXT + ".\n"
     "Never click anything else: no DM, no post, no like, no reply, no repost, no block, no mute, no report. Don't message anyone.\n"
-    "Report JSON: {{signed_in, profile_matches, menu_opened, unfollow_item_found, clicked, confirmed, not_following, "
+    "Report JSON: {{signed_in, profile_matches, menu_opened, unfollow_item_found, path_used, clicked, confirmed, not_following, "
     "button_after, ok, verified_unfollowed, stop, error}}."
 )
-UNFOLLOW_REPORT_KEYS = ("signed_in", "profile_matches", "menu_opened", "unfollow_item_found", "clicked", "confirmed",
+UNFOLLOW_REPORT_KEYS = ("signed_in", "profile_matches", "menu_opened", "unfollow_item_found", "path_used", "clicked", "confirmed",
                         "not_following", "button_after", "ok", "verified_unfollowed", "stop", "error")
-NEVER_CLICK_MENU = ("Block", "Mute", "Report", "Add/remove from Lists", "View Topics", "Share profile via", "Copy link to profile")
+NEVER_CLICK_MENU = ("Block", "Mute", "Report", "About this account", "Add/remove from Lists", "View Lists",
+                    "Copy link to profile")
 
 
 def unfollow_task(handle: str) -> str:
