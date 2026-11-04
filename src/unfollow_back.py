@@ -74,17 +74,44 @@ BROWSER_FOLLOWS_YOU_CHECK_STEPS = (
     "unchecked accounts are reported as None (Not available), never guessed."
 )
 BROWSER_UNFOLLOW_STEPS = (
-    "Browser step: unfollow ONLY the accounts the owner ticked on the monthly unfollow-back card (box browser, signed "
-    "in to X). Strictly one at a time, in order; never in parallel.\n"
-    "For each account:\n"
-    "1. Open https://x.com/<handle>. If you are not signed in to X, do nothing else and report signed_in=false "
-    "(the bot hands the desktop to the owner to sign in once; never ask for a password in chat).\n"
-    "2. Click the normal 'Following' button, then confirm 'Unfollow' in X's own dialog. No scripts, API calls or hidden endpoints.\n"
-    "3. Check the button now reads 'Follow'. Report ok / not ok.\n"
-    "4. If X shows any warning, rate-limit notice, challenge/captcha or login wall, report it and STOP the whole run.\n"
-    "5. Wait the gap unfollow_back gives you (natural human pace: about 20-45 s randomized, 2-5 s pause after the profile loads, ~2-4 min break after every 5) before the next account.\n"
-    "Never block, mute, like, reply, repost or DM. One summary at the end."
+    "Browser step: unfollow ONLY the accounts the owner ticked (monthly unfollow-back card or 30-day window card), in "
+    "the bot's own browser on x.com, signed in as the owner (x_web_session preflight first). Strictly one at a time, "
+    "in order; never in parallel. Use each account's own task (BROWSER_UNFOLLOW_ONE_STEPS): open the three-dot 'More' "
+    "menu on the profile header, click 'Unfollow @handle', confirm 'Unfollow' if asked, reload and check the main "
+    "button reads 'Follow'. Never click Block, Mute, Report or any other menu item. STOP the whole run on any X "
+    "warning, rate-limit notice, challenge/captcha or login wall. Between accounts wait the gap unfollow_back gives "
+    "you (natural human pace: about 20-45 s randomized, 2-5 s pause after the profile loads, ~2-4 min break after "
+    "every 5); " + fx.WAIT_TEXT + ". Never block, mute, like, reply, repost or DM. One summary at the end."
 )
+BROWSER_UNFOLLOW_ONE_STEPS = (
+    "Browser step (computerUse subagent, the bot's own browser on x.com). Unfollow exactly one account: @{handle}.\n"
+    "1. Open {url}. If X shows a sign-in page or you are not signed in, do nothing else and report signed_in=false "
+    "(never ask for a password in chat).\n"
+    "2. Confirm the profile's @handle is exactly @{handle} (case-insensitive). If not, report profile_matches=false and "
+    "stop. Then wait a random 2-5 s (one short wait), like a person reading the profile.\n"
+    "3. Open the three-dot 'More' menu in the upper right of the profile header (the button with aria-label 'More', "
+    "next to the main Follow/Following button). Do not use the main 'Following' button.\n"
+    "4. In that dropdown, click 'Unfollow @{handle}' and nothing else. Never click Block, Mute, Report or any other "
+    "menu item. If the menu has no 'Unfollow @{handle}' item (you are not following them), close the menu (Escape or "
+    "click outside it), click nothing else, and report not_following=true.\n"
+    "5. If a confirm dialog appears, click its 'Unfollow' button (never 'Cancel' then retry, never anything else).\n"
+    "6. Reload the profile page and read the main profile button. It must read 'Follow'. Report button_after, and "
+    "verified_unfollowed=true only if it reads 'Follow'.\n"
+    "7. If X shows any warning, rate-limit notice, challenge/captcha, 'Something went wrong' dialog or login wall, "
+    "report stop=<reason> right away.\n"
+    "Waits: " + fx.WAIT_TEXT + ".\n"
+    "Never click anything else: no DM, no post, no like, no reply, no repost, no block, no mute, no report. Don't message anyone.\n"
+    "Report JSON: {{signed_in, profile_matches, menu_opened, unfollow_item_found, clicked, confirmed, not_following, "
+    "button_after, ok, verified_unfollowed, stop, error}}."
+)
+UNFOLLOW_REPORT_KEYS = ("signed_in", "profile_matches", "menu_opened", "unfollow_item_found", "clicked", "confirmed",
+                        "not_following", "button_after", "ok", "verified_unfollowed", "stop", "error")
+NEVER_CLICK_MENU = ("Block", "Mute", "Report", "Add/remove from Lists", "View Topics", "Share profile via", "Copy link to profile")
+
+
+def unfollow_task(handle: str) -> str:
+    h = _h(handle)
+    return BROWSER_UNFOLLOW_ONE_STEPS.format(handle=h, url=profile_link(h))
 
 
 def _now() -> str:
@@ -314,10 +341,10 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
             _log(c, "UNFOLLOW_STOPPED", run_id=run_id, detail=stop)
         return {"status": stop["reason"], "unfollowed": [], "failed": [], "stopped": stop, "plan": plan, "gaps": [],
                 "text": d["text"]}
-    done, failed, gaps, stop = [], [], [], None
+    done, failed, gaps, stop, skipped = [], [], [], None, []
     for i, p in enumerate(picks):
         if i:
-            g = fx.pace_gap(i, rand); gaps.append(g); sleep(g)
+            g = fx.pace_gap(i, rand); gaps.append(g); fx.sleep_chunked(g, sleep)
         r = browser_unfollow(_h(p["handle"])) or {}
         if r.get("signed_in") is False or r.get("stop") == "login_wall":
             stop = {"reason": fx.NEEDS_SIGNIN, "at_handle": _h(p["handle"]),
@@ -325,11 +352,23 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
             with mem._Tx(user_key, root) as c:
                 _log(c, "UNFOLLOW_STOPPED", run_id=run_id, detail=stop)
             break
-        ok = bool(r.get("ok")) and bool(r.get("verified_unfollowed"))
+        if r.get("not_following") or r.get("profile_matches") is False:
+            why = "not_following" if r.get("not_following") else "profile_mismatch"
+            with mem._Tx(user_key, root) as c:
+                _log(c, "UNFOLLOW_SKIPPED", run_id=run_id, user_id=str(p["user_id"]), handle=_h(p["handle"]),
+                     detail={"reason": why, "method": "browser_more_menu"})
+            skipped.append({"handle": _h(p["handle"]), "reason": why})
+            if r.get("stop"):
+                stop = {"reason": r["stop"], "at_handle": _h(p["handle"]),
+                        "not_attempted": [_h(x["handle"]) for x in picks[i + 1:]]}
+                break
+            continue
+        after = r.get("button_after")
+        ok = bool(r.get("ok")) and bool(r.get("verified_unfollowed")) and (after is None or str(after).strip().lower() == "follow")
         uid, now = str(p["user_id"]), _now()
         with mem._Tx(user_key, root) as c:
             _log(c, "UNFOLLOWED" if ok else "UNFOLLOW_FAILED", run_id=run_id, user_id=uid, handle=_h(p["handle"]),
-                 detail={"error": r.get("stop") or r.get("error"), "method": "browser_unfollow"})
+                 detail={"error": r.get("stop") or r.get("error"), "method": "browser_more_menu"})
             if ok and not flag:  # 30-day window: unfollowed, never flagged
                 c.execute("UPDATE tracked_follow SET status='owner_unfollowed_no_followback' WHERE user_id=?", (uid,))
             elif ok:
@@ -353,9 +392,11 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
         text += f" Stopped: X showed a {stop['reason'].replace('_', ' ')} at @{stop['at_handle']}."
     if failed and not stop:
         text += f" {len(failed)} didn't confirm."
+    if skipped:
+        text += " Skipped: " + ", ".join(f"@{k['handle']} ({k['reason'].replace('_', ' ')})" for k in skipped) + "."
     status = fx.NEEDS_SIGNIN if stop and stop["reason"] == fx.NEEDS_SIGNIN else ("stopped" if stop else "done")
-    return {"status": status, "plan": plan, "unfollowed": done, "failed": failed, "stopped": stop, "gaps": gaps,
-            "text": text}
+    return {"status": status, "plan": plan, "unfollowed": done, "failed": failed, "skipped": skipped, "stopped": stop,
+            "gaps": gaps, "text": text}
 
 
 def build_unfollow_plan(picks: list[dict]) -> list[dict]:
@@ -363,7 +404,8 @@ def build_unfollow_plan(picks: list[dict]) -> list[dict]:
     return [{"user_id": str(p["user_id"]), "handle": _h(p["handle"]), "url": profile_link(p["handle"]),
              "order": i + 1, "gap_before_s": 0 if i == 0 else list(fx.PACING["batch_break_s"] if i % fx.PACING["batch_every"] == 0
                                                                   else fx.PACING["gap_s"]),
-             "steps": BROWSER_UNFOLLOW_STEPS} for i, p in enumerate(picks)]
+             "wait_chunks_max_s": fx.MAX_WAIT_CHUNK_S, "steps": unfollow_task(p["handle"]),
+             "report_keys": list(UNFOLLOW_REPORT_KEYS)} for i, p in enumerate(picks)]
 
 
 # ---------- 5. re-follow warning gate ----------

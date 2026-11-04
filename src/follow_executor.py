@@ -43,6 +43,27 @@ PACING = {
     "batch_break_s": (120.0, 240.0),  # ...take a longer ~2-4 min break instead of the normal gap
 }
 PACE_TEXT = "natural human pace (about 20-45s apart, randomized, with a short break every 5)"
+# v3.5.33: browser agents can't hold one long wait, so every wait is split into short waits, each under 30 s.
+MAX_WAIT_CHUNK_S = 25.0
+WAIT_TEXT = ("do every wait as several short waits of at most 25 s each (never one wait of 30 s or more); "
+             "e.g. a 40 s gap = 20 s + 20 s, a 3 min break = 8 waits of 22.5 s")
+
+
+def wait_chunks(seconds: float, max_chunk: float = MAX_WAIT_CHUNK_S) -> list[float]:
+    """Split a wait into equal short waits, each <= max_chunk (< 30 s). 0 -> []."""
+    import math
+    seconds = max(0.0, float(seconds or 0))
+    if seconds <= 0:
+        return []
+    n = max(1, math.ceil(seconds / max_chunk))
+    return [round(seconds / n, 3)] * n
+
+
+def sleep_chunked(seconds: float, sleep: Callable[[float], None] = time.sleep) -> list[float]:
+    ch = wait_chunks(seconds)
+    for c in ch:
+        sleep(c)
+    return ch
 FOLLOW_GAP_MIN, FOLLOW_GAP_MAX = PACING["gap_s"]
 FOLLOW_PACING = {"FOLLOW_GAP_MIN": FOLLOW_GAP_MIN, "FOLLOW_GAP_MAX": FOLLOW_GAP_MAX, **PACING}
 
@@ -55,7 +76,7 @@ BROWSER_FOLLOW_STEPS = (
     "3. Check that the button now reads 'Following'. Report ok / not ok.\n"
     "4. If X shows any warning, rate-limit notice, challenge/captcha or login wall, report it and STOP the whole run.\n"
     "5. Wait the gap follow_executor gives you (natural human pace: about 20-45 s randomized, a 2-5 s pause after the "
-    "profile loads before clicking, and a ~2-4 min break after every 5) before the next account.\n"
+    "profile loads before clicking, and a ~2-4 min break after every 5) before the next account; " + WAIT_TEXT + ".\n"
     "Never like, reply, repost, DM or change anything else. Don't message the owner per follow; there's one summary at the end."
 )
 STOP_REASONS = ("warning", "rate_limit", "challenge", "login_wall")
@@ -393,7 +414,8 @@ class FollowSession:
                 wait = pace_gap(self.attempted, self.rand)
                 self.gaps.append(wait)
             self._pending = self._i
-            return {"kind": "follow", "wait_s": wait, "item": item, "task": browser_task(item)}
+            return {"kind": "follow", "wait_s": wait, "wait_chunks": wait_chunks(wait), "item": item,
+                    "task": browser_task(item)}
         return None
 
     def submit(self, raw) -> dict:
@@ -517,6 +539,6 @@ def run_browser(user_key: str, run_id: str, picks: list[dict], browser_follow: C
             s.submit(preflight(t["task"]) if preflight else {"signed_in": None, "error": "no preflight runner"})
             continue
         if t["wait_s"]:
-            sleep(t["wait_s"])
+            sleep_chunked(t["wait_s"], sleep)
         s.submit(browser_follow(t["item"]))
     return s.finish(x)
