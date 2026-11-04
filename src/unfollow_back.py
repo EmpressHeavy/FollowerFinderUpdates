@@ -97,18 +97,22 @@ BROWSER_UNFOLLOW_ONE_STEPS = (
     "read the main profile button. If it reads 'Follow', you are not following them: click nothing, report "
     "not_following=true and stop. If it reads 'Following', click it (path_used=main_button).\n"
     "5. A confirm dialog appears: act on it promptly (it can vanish) and click its 'Unfollow' button, never anything "
-    "else. If it vanished before you could click, report confirmed=false rather than retrying blindly.\n"
+    "else. If the dialog vanished before you could click it, set dialog_vanished=true, reload the profile and read "
+    "the main button: 'Follow' means the unfollow went through (verified_unfollowed=true, go to step 7). 'Following' "
+    "means retry steps 3-5 ONCE (menu or main button, then confirm), set retries=1, then reload and check again in "
+    "step 6. If it still reads 'Following' after that one retry, report ok=false, needs_owner=true and stop; never a "
+    "second retry. Report retries (0 or 1) either way.\n"
     "6. Reload the profile page and read the main profile button. It must read 'Follow'. Report button_after, and "
     "verified_unfollowed=true only if it reads 'Follow'.\n"
     "7. If X shows any warning, rate-limit notice, challenge/captcha, 'Something went wrong' dialog or login wall, "
     "report stop=<reason> right away.\n"
     "Waits: " + fx.WAIT_TEXT + ".\n"
     "Never click anything else: no DM, no post, no like, no reply, no repost, no block, no mute, no report. Don't message anyone.\n"
-    "Report JSON: {{signed_in, profile_matches, menu_opened, unfollow_item_found, path_used, clicked, confirmed, not_following, "
-    "button_after, ok, verified_unfollowed, stop, error}}."
+    "Report JSON: {{signed_in, profile_matches, menu_opened, unfollow_item_found, path_used, clicked, confirmed, dialog_vanished, retries, "
+    "not_following, button_after, needs_owner, ok, verified_unfollowed, stop, error}}."
 )
 UNFOLLOW_REPORT_KEYS = ("signed_in", "profile_matches", "menu_opened", "unfollow_item_found", "path_used", "clicked", "confirmed",
-                        "not_following", "button_after", "ok", "verified_unfollowed", "stop", "error")
+                        "dialog_vanished", "retries", "not_following", "button_after", "needs_owner", "ok", "verified_unfollowed", "stop", "error")
 NEVER_CLICK_MENU = ("Block", "Mute", "Report", "About this account", "Add/remove from Lists", "View Lists",
                     "Copy link to profile")
 
@@ -345,7 +349,7 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
             _log(c, "UNFOLLOW_STOPPED", run_id=run_id, detail=stop)
         return {"status": stop["reason"], "unfollowed": [], "failed": [], "stopped": stop, "plan": plan, "gaps": [],
                 "text": d["text"]}
-    done, failed, gaps, stop, skipped = [], [], [], None, []
+    done, failed, gaps, stop, skipped, needs_owner = [], [], [], None, [], []
     for i, p in enumerate(picks):
         if i:
             g = fx.pace_gap(i, rand); gaps.append(g); fx.sleep_chunked(g, sleep)
@@ -372,7 +376,9 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
         uid, now = str(p["user_id"]), _now()
         with mem._Tx(user_key, root) as c:
             _log(c, "UNFOLLOWED" if ok else "UNFOLLOW_FAILED", run_id=run_id, user_id=uid, handle=_h(p["handle"]),
-                 detail={"error": r.get("stop") or r.get("error"), "method": "browser_more_menu"})
+                 detail={"error": r.get("stop") or r.get("error"), "method": "browser_more_menu",
+                         "path_used": r.get("path_used"), "dialog_vanished": bool(r.get("dialog_vanished")),
+                         "retries": min(int(r.get("retries") or 0), 1), "needs_owner": (not ok) and bool(r.get("needs_owner"))})
             if ok and not flag:  # 30-day window: unfollowed, never flagged
                 c.execute("UPDATE tracked_follow SET status='owner_unfollowed_no_followback' WHERE user_id=?", (uid,))
             elif ok:
@@ -387,6 +393,8 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
                         "not_attempted": [_h(x["handle"]) for x in picks[i + 1:]]}
                 _log(c, "UNFOLLOW_STOPPED", run_id=run_id, detail=stop)
         (done if ok else failed).append(_h(p["handle"]))
+        if not ok and r.get("needs_owner"):
+            needs_owner.append(_h(p["handle"]))
         if stop:
             break
     text = f"Unfollowed {len(done)}."
@@ -396,11 +404,13 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
         text += f" Stopped: X showed a {stop['reason'].replace('_', ' ')} at @{stop['at_handle']}."
     if failed and not stop:
         text += f" {len(failed)} didn't confirm."
+    if needs_owner:
+        text += " Still following after one retry, please check: " + ", ".join(f"@{h}" for h in needs_owner) + "."
     if skipped:
         text += " Skipped: " + ", ".join(f"@{k['handle']} ({k['reason'].replace('_', ' ')})" for k in skipped) + "."
     status = fx.NEEDS_SIGNIN if stop and stop["reason"] == fx.NEEDS_SIGNIN else ("stopped" if stop else "done")
     return {"status": status, "plan": plan, "unfollowed": done, "failed": failed, "skipped": skipped, "stopped": stop,
-            "gaps": gaps, "text": text}
+            "needs_owner": needs_owner, "gaps": gaps, "text": text}
 
 
 def build_unfollow_plan(picks: list[dict]) -> list[dict]:
