@@ -1,4 +1,4 @@
-"""Follower Finder self-updater (v3.5.33).
+"""Follower Finder self-updater (v3.5.34).
 
 Updates come ONLY from https://github.com/EmpressHeavy/FollowerFinderUpdates (branch main).
 Layout installed under HOME (default ~/follower_finder, test installs pass their own folder):

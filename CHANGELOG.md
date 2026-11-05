@@ -1,5 +1,8 @@
 # Changelog
 
+## v3.5.34
+- New installs: I set my own Follower Finder profile picture right after the update check. If it doesn't work, I'll say so and keep going; ask me anytime to set or reset it.
+
 ## v3.5.33
 - Unfollows try the three-dot 'More' menu first. When it has no Unfollow item (the usual case on desktop), I close it and use the main 'Following' button, then confirm 'Unfollow' right away, and if that dialog disappears I reload, check, and retry once before asking you, and each one is checked by reloading the profile. If I'm not following an account, I skip it, and I never touch Block, Mute or Report. Every wait is now a few short waits, so the browser can keep up.
 - Follows and unfollows are clicked in my own browser on x.com, so setup now checks that browser is signed in to YOUR X account (right after the X connector check). If it isn't, a sign-in card lets you sign in on my desktop or through a secure login form. I never ask for your password in chat.

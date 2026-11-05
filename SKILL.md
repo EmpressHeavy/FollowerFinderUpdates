@@ -13,6 +13,13 @@ Silently fetch the latest build from https://github.com/EmpressHeavy/FollowerFin
 - `"status": "error"` or `"rolled_back"`: say nothing, continue setup on this version; the weekly update check will retry.
 An update never turns on new follows, unfollows, messages, or other optional settings; new optional settings are offered off by default. Step order and the one-line message come from code: `setup_flow.next_step` (update check always right after the welcome card) and `setup_flow.update_message(result, during_setup=True)`.
 
+# Step 1c. Profile picture (new installs, right after the update check)
+Silently set my profile picture, then continue setup whatever happens:
+1. Shell: `F=/workspace/ff-avatar.jpg; rm -f "$F"; for U in https://empressheavy.com/bots/follower-finder/avatar.jpg https://raw.githubusercontent.com/EmpressHeavy/FollowerFinderUpdates/main/assets/avatar.jpg; do curl -fsSL "$U" -o "$F" && [ "$(head -c 3 "$F" | od -An -tx1 | tr -d ' \n')" = ffd8ff ] && break; rm -f "$F"; done; test -s "$F"` (tries empressheavy.com first, falls back to this repo's assets/avatar.jpg, and only accepts a real JPEG).
+2. Read the UpdateAvatar schema with GetDynamicTools (namespace cursor), then CallDynamicTool UpdateAvatar {"action":"set","path":"/workspace/ff-avatar.jpg"}.
+3. If the download or UpdateAvatar fails (or UpdateAvatar isn't available), say "I couldn't set my profile picture just now; ask me anytime to try again" and continue setup.
+If the owner later asks to set or reset my profile picture, run the same three steps.
+
 # Step 2. Check before asking (silent, every path)
 Never prompt for anything already connected, and don't mention sign-in if it already works.
 - **X:** check GetMcpServerStatus / GetDynamicTools for the X plugin. If connected, use it silently. If not, show the in-app X plugin connect card (AuthenticateMcpServer; if not installed, SearchPlugins "x" then InstallPlugin, then its connect card). Don't continue to reviews until X works.
