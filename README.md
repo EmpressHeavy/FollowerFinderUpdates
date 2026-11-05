@@ -1,5 +1,7 @@
 # Follower Finder updates
 
+<img src="assets/avatar.jpg" alt="Follower Finder profile picture" width="160">
+
 Official update channel for the Follower Finder Grok Bot. Installed bots check `VERSION` here at setup and weekly, and apply newer builds with `src/updater.py` (snapshot first, roll back on failure, owner data never touched).
 
 - `VERSION` – current published version
