@@ -17,12 +17,18 @@ Order in run_daily_review (each filter runs BEFORE any profiling, deep dive or s
     allow_reply_heavy pref (default off). Scoring values are unchanged.
  6. bought_risk.apply with show_bought_risk. OFF (default) hides flagged accounts; ON shows them with the flag and
     reason. Never an auto-skip.
- 7. translation_requests -> the browser runs BROWSER_TRANSLATE_STEPS -> apply_browser_translations.
- 8. Cards: multi-select, at most 5 accounts per card, nothing pre-ticked. A "Follow all on this card" option comes
-    first. Each account shows Follow back / Maybe / Skip + one-line reason, the interest tie-in and the interaction
-    summary. Missing data reads "Not available" / "None found", never invented.
+ 7. translation_requests for Follow back / Maybe only -> the browser runs BROWSER_TRANSLATE_STEPS ->
+    apply_browser_translations. Skip-rated accounts are not sent to translation and not shown.
+ 8. Cards: multi-select, at most 5 Follow back or Maybe accounts per card, nothing pre-ticked. Skip is left off
+    the card (still marked seen, so it is not reviewed again as new, and it is not listed for the owner). If every
+    reviewed account is Skip, cards is empty and note is review_cards.NO_SUITABLE_NOTE. A "Follow all on this card"
+    option comes first and selects only that card's accounts. Each offered account shows its rating + one-line
+    reason, the interest tie-in and the interaction summary. Missing data reads "Not available" / "None found",
+    never invented.
 finish_review:
- 9. record_selection, then recheck_queue.record_card_outcome (unpicked inactive accounts are queued), then
+ 9. Validate picks against the pending card (unknown ids and unknown card numbers raise; Follow all and ticks
+    expand only to displayed Follow back / Maybe, so a legacy pending card that still lists a Skip does not follow
+    it). Then record_selection, then recheck_queue.record_card_outcome (unpicked inactive accounts are queued), then
     follow_executor.run on ONLY the picked accounts, with blocked_by.follow_guard (natural human pace (about 20-45s apart, randomized, with a short break every 5), stop on warning,
     append-only log). Returns ONE summary.
 v3.5.28 (unfollow_back): each run seeds tracked_follow from verified mutuals; flagged accounts (owner unfollowed them
@@ -52,14 +58,16 @@ from typing import Any, Protocol
 
 try:
     from . import (blocked_by as bb, bought_risk as br, conduct as cd, drive_by as db, follow_executor as fx, preferences as pf,
-                   recheck_queue as rq, translation as tl, unfollow_back as ub, verified_deep_dive as dd, verified_followers as vf)
+                   recheck_queue as rq, review_cards as rc, translation as tl, unfollow_back as ub, verified_deep_dive as dd,
+                   verified_followers as vf)
 except ImportError:  # pragma: no cover
     import blocked_by as bb, bought_risk as br, conduct as cd, drive_by as db, follow_executor as fx, preferences as pf  # type: ignore
-    import recheck_queue as rq, translation as tl, unfollow_back as ub, verified_deep_dive as dd, verified_followers as vf  # type: ignore
+    import recheck_queue as rq, review_cards as rc, translation as tl, unfollow_back as ub, verified_deep_dive as dd, verified_followers as vf  # type: ignore
 
-FOLLOW_ALL = "__follow_all__"
-FOLLOW_ALL_LABEL = "Follow all on this card"
-RECHECKED_LABEL = "Rechecked"
+FOLLOW_ALL = rc.FOLLOW_ALL
+FOLLOW_ALL_LABEL = rc.FOLLOW_ALL_LABEL
+RECHECKED_LABEL = rc.RECHECKED_LABEL
+NO_SUITABLE_NOTE = rc.NO_SUITABLE_NOTE
 NONE_FOUND = "None found"
 FOLLOWER_PAGE_CAP = None  # v3.5.31: no cap; page until X runs out (rate limits pause+resume in the adapter)
 USER_FIELDS = "created_at,description,public_metrics,verified,verified_type,pinned_tweet_id,connection_status"
@@ -135,21 +143,10 @@ def _profile(user: dict, owner_id: str, score: dict, posts: list[dict] | None, *
     return p
 
 
-def build_review_cards(profiles: list[dict], run_id: str) -> list[dict]:
-    """Multi-select, <= CARD_SIZE accounts per card, nothing pre-ticked, 'Follow all on this card' first."""
-    cards = vf.build_cards(profiles, run_id)
-    by_id = {p["user_id"]: p for p in profiles}
-    for c in cards:
-        for o in c["options"]:
-            p = by_id[o["value"]]
-            o["label"] = (f"{RECHECKED_LABEL} · " if p["rechecked"] else "") + o["label"]
-            o["rec"] = p["rec"]
-            o["detail"] = (f"{p['rec']}: {p['reason']} | {p['account_health']} | {p['interest']} | {p['recency']} | "
-                           + o["detail"])
-        c["options"].insert(0, {"value": FOLLOW_ALL, "checked": False, "label": FOLLOW_ALL_LABEL,
-                                "detail": f"Follows all {len(c['options'])} accounts on this card, one at a time"})
-        c["account_ids"] = [o["value"] for o in c["options"] if o["value"] != FOLLOW_ALL]
-    return cards
+def build_review_cards(profiles: list[dict], run_id: str, *, title_prefix: str = "New verified followers") -> list[dict]:
+    """Multi-select, <= 5 Follow back / Maybe accounts per card, nothing pre-ticked, Follow all first.
+    Skip-rated profiles are omitted. Counts and Follow all use only the accounts that remain."""
+    return rc.build_review_cards(profiles, run_id, title_prefix=title_prefix)
 
 
 def _state_path(owner_key, run_id, root):
@@ -203,9 +200,9 @@ def run_daily_review(owner_key: str, x: XAdapter, browser: BrowserAdapter, prefs
         res = browser.mute_check(unknown, cd.BROWSER_MUTE_CHECK_STEPS) or {}
         mutes = {str(k): v for k, v in res.items() if v is not None}
     # 4. recheck queue
-    rc = rq.process_due(owner_key, x.call, owner_id, now=now, root=root, dd_cfg=dd_cfg, calls_remaining=budget(),
-                        following_ids=following_ids, allow_reply_heavy=bool(prefs["allow_reply_heavy"]))
-    used += rc.get("calls_used") or 0
+    rechecked = rq.process_due(owner_key, x.call, owner_id, now=now, root=root, dd_cfg=dd_cfg, calls_remaining=budget(),
+                               following_ids=following_ids, allow_reply_heavy=bool(prefs["allow_reply_heavy"]))
+    used += rechecked.get("calls_used") or 0
     # 5. deep dive + score
     pairs, shown = [], []
     cfg = dd_cfg or dd.DEEP_DIVE_CONFIG
@@ -222,7 +219,7 @@ def run_daily_review(owner_key: str, x: XAdapter, browser: BrowserAdapter, prefs
         cd.apply(s, cd.assess(u, posts, cfg=conduct_cfg, muted=mutes.get(str(u["id"]))), cfg=cfg)
         pairs.append((u, _profile(u, owner_id, s, posts, includes=fetched.get("includes_tweets"))))
         shown.append((u, s))
-    for r in rc.get("surface") or []:
+    for r in rechecked.get("surface") or []:
         u = r["user"]
         if bb.is_blocked_by(owner_key, u.get("id"), root=root) or str(u.get("id")) in following_ids:
             continue
@@ -233,52 +230,66 @@ def run_daily_review(owner_key: str, x: XAdapter, browser: BrowserAdapter, prefs
     kept = br.apply(owner_key, pairs, show=bool(prefs["show_bought_risk"]), now=now)
     kept_ids = {p["user_id"] for p in kept}
     shown = [(u, s) for u, s in shown if str(u["id"]) in kept_ids]
-    # 7. translation via the browser (X's own Translate post)
-    reqs = tl.translation_requests(kept, {"read_languages": prefs["read_languages"]})
+    # 7. translation via the browser, only for accounts a card will show (X's own Translate post)
+    offered_profiles = [p for p in kept if rc.is_offered(p.get("rec"))]
+    reqs = tl.translation_requests(offered_profiles, {"read_languages": prefs["read_languages"]})
     if reqs:
         captured = browser.translate(reqs, tl.BROWSER_TRANSLATE_STEPS) or {}
         by_id = {p["user_id"]: p for p in kept}
         for q in reqs:
             tl.apply_browser_translations(by_id[str(q["user_id"])], captured.get(str(q["user_id"])), lang=q["lang"])
-    # 8. cards
+    # 8. cards. Skip stays in `shown` (marked seen, internal recheck) and off the card and the return value.
     window = ub.followback_window(owner_key, x, now=now, root=root)  # v3.5.28 30-day follow-back window
-    cards = ub.mark_card_options(build_review_cards(kept, run_id), ub.flagged(owner_key, root))
-    vf.mark_seen(owner_key, [u for u, _ in shown], root)
+    assembled = rc.assemble_review(kept, run_id)
+    cards = ub.mark_card_options(assembled["cards"], ub.flagged(owner_key, root))
+    vf.mark_seen(owner_key, [u for u, _ in shown], root)  # includes Skip, so select_new will not return them
     state = {"run_id": run_id, "owner_key": owner_key, "cards": [{"card_no": c["card_no"], "ids": c["account_ids"]} for c in cards],
              "shown": [{"user": u, "r": _slim(s), "handle": "@" + u["username"]} for u, s in shown]}
     vf.st.save_json(_state_path(owner_key, run_id, root), state)
-    vf.log_run(owner_key, {"run_id": run_id, "new": len(new), "shown": len(kept), "rechecked": len(rc.get("surface") or []),
+    vf.log_run(owner_key, {"run_id": run_id, "new": len(new), "shown": len(kept), "offered": assembled["offered"],
+                           "skipped_count": assembled["skipped_count"], "rechecked": len(rechecked.get("surface") or []),
                            "deferred": len(deferred), "calls_used": used}, root)
-    return {"run_id": run_id, "cards": cards, "calls_used": used, "deferred": [u["id"] for u in deferred],
-            "translation_requests": reqs, "recheck": {k: rc.get(k) for k in ("still_inactive", "removed", "deferred")},
+    return {"run_id": run_id, "cards": cards, "note": assembled["note"], "offered": assembled["offered"],
+            "skipped_count": assembled["skipped_count"], "calls_used": used, "deferred": [u["id"] for u in deferred],
+            "translation_requests": reqs,
+            "recheck": {k: rechecked.get(k) for k in ("still_inactive", "removed", "deferred")},
             "followback_window": window}
 
 
 def finish_review(owner_key: str, run_id: str, picks: dict, browser: BrowserAdapter, *, root=None, now=None,
                   sleep=None, rand=None, refollow_confirmations: dict | None = None, x=None) -> dict:
     """picks: {card_no: [user_id, ... or FOLLOW_ALL]}. Follows ONLY the picked accounts, then returns one summary.
+    Picks are checked against this owner's pending card before anything is logged or followed. Follow all and ticked
+    ids expand only to Follow back / Maybe (a legacy card that still lists a Skip does not follow it). An id or card
+    number that is not in the pending review raises ValueError and follows nobody. Empty ticks follow nobody.
     refollow_confirmations: {user_id: 'Yes'|'No'} answers to unfollow_back.refollow_gate_card for flagged picks. If a
     flagged account is picked without an answer, nothing is recorded or followed; returns
     {'needs_refollow_confirmation': [gate cards]} so the owner can answer, then call again with the answers."""
     state = vf.st.load_json(_state_path(owner_key, run_id, root), None)
     if not state or state.get("owner_key") != owner_key:
         raise ValueError(f"no pending review {run_id} for this owner")
+    picks = picks or {}
     shown = {str(s["user"]["id"]): s for s in state["shown"]}
     profs = {i: {"handle": s["handle"]} for i, s in shown.items()}
+    rec_by_id = {i: (s.get("r") or {}).get("rec") for i, s in shown.items()}
+    hard_ids = {i for i, s in shown.items() if (s.get("r") or {}).get("hard_skip")}
+    rc.check_card_keys(state["cards"], picks)
+    resolved = []
+    for c in state["cards"]:
+        raw = picks.get(c["card_no"], picks.get(str(c["card_no"]), []))
+        resolved.append((c, rc.resolve_picks(c["card_no"], c["ids"], raw, rec_by_id, hard_skip_ids=hard_ids)))
     flags = ub.flagged(owner_key, root)
     conf = {str(k): v for k, v in (refollow_confirmations or {}).items()}
     pending = []
-    for c in state["cards"]:
-        raw = [str(v) for v in picks.get(c["card_no"], picks.get(str(c["card_no"]), []))]
-        ids = list(c["ids"]) if FOLLOW_ALL in raw else [i for i in raw if i in c["ids"]]
-        pending += [ub.refollow_gate_card(i, shown[i]["handle"]) for i in ids if i in flags and conf.get(i) not in (ub.YES, ub.NO)]
+    for _c, ids in resolved:
+        pending += [ub.refollow_gate_card(i, shown[i]["handle"]) for i in ids
+                    if i in flags and conf.get(i) not in (ub.YES, ub.NO)]
     if pending:
         return {"needs_refollow_confirmation": pending, "followed": [], "text": ub.REFOLLOW_WARNING}
     picked: list[str] = []
-    for c in state["cards"]:
-        raw = [str(v) for v in picks.get(c["card_no"], picks.get(str(c["card_no"]), []))]
-        ids = list(c["ids"]) if FOLLOW_ALL in raw else [i for i in raw if i in c["ids"]]
-        vf.record_selection(owner_key, run_id, c["card_no"], c["ids"], ids, profs, root=root)
+    for c, ids in resolved:
+        offered_ids = rc.selectable_ids(c["ids"], rec_by_id, hard_skip_ids=hard_ids)
+        vf.record_selection(owner_key, run_id, c["card_no"], offered_ids, ids, profs, root=root)
         picked += ids
     rq.record_card_outcome(owner_key, [(s["user"], s["r"]) for s in state["shown"]], picked, now=now, root=root)
     plan = [{"user_id": i, "handle": shown[i]["handle"], "follows_user": True} for i in picked]

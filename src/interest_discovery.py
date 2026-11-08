@@ -1,33 +1,40 @@
-"""Interest discovery (v3.5.32): find people worth following who match what the owner posts about.
+"""Interest discovery (v3.5.32; review cards v3.5.35): find people worth following who match what the owner posts about.
 
-Pure functions, no network. The bot passes in data it already read with the X tools (the owner's recent posts and
-bio, X search results) or injects fetchers for tests. Nothing here follows anyone: candidates go on normal cards and
-the owner picks; picked accounts then run through follow_executor.FollowSession like any follow.
+No network of its own. The bot passes in data it already read with the X tools (the owner's recent posts and
+bio, X search results) or injects fetchers for tests. Nothing here follows anyone: offered accounts go on the same
+review cards as verified followers and the owner picks; picked accounts then run through follow_executor like any follow.
 
     interests = learn_interests(owner_posts, owner_bio)            # [{term, weight, source}], strongest first
     card      = interests_card(interests)                           # confirm / edit topics (preference card)
     saved     = apply_interest_answer(interests, picked, typed)     # owner's answer -> final topic list
     queries   = build_queries(saved)                                # X recent-search queries (no retweets, lang)
     ranked    = rank_candidates(users, posts_by_id, saved, ...)     # existing quality + bot checks applied
-    run_discovery(saved, search=..., fetch_posts=..., ...)          # same, with injectable fetchers
+    found     = run_discovery(saved, search=..., fetch_posts=..., user_key=..., ...)
+    picks     = validate_pending_selection(user_key, found["run_id"], picks)  # does not follow
 
 Ranking reuses the existing checks: verified_followers.content_value / classify_text (post quality, crypto and
-engagement-farm detection) and bought_risk.assess (bought/bot risk). Low-quality or flagged accounts are dropped,
-never shown; accounts the owner already follows, already blocked, or is protected from are excluded by the caller's
-exclude set.
+engagement-farm detection) and bought_risk.assess (bought/bot risk). Those failures are rated Skip: reviewed and,
+when user_key is set, remembered for that owner so the next search does not fetch them again. They are not on the
+card and not in the returned candidates. Follow back / Maybe are the only accounts offered, in cards of at most 5.
 """
 from __future__ import annotations
 
+import datetime as dt
 import re
+import uuid
 from collections import Counter
 from typing import Callable, Iterable
 
 try:
     from . import verified_followers as vf
     from . import bought_risk as br
+    from . import review_cards as rc
+    from . import storage as st
 except ImportError:  # pragma: no cover
     import verified_followers as vf
     import bought_risk as br
+    import review_cards as rc
+    import storage as st
 
 STOPWORDS = set("""a an and are as at be been but by can could did do does doing for from had has have having he her
 here hers him his how i if in into is it its just like me more most my no not now of off on once only or other our out
@@ -38,9 +45,13 @@ people make made want need know think see look good great best love im ive dont 
 """.split())
 WORD_RE = re.compile(r"[#]?[A-Za-z][A-Za-z0-9_+\-]{2,}")
 MAX_TERMS = 8
-CARD_MAX = 6              # cards never show more than 6 options; the typed field covers the rest
+CARD_MAX = 6              # topic preference card: never more than 6 options; the typed field covers the rest
 MAX_QUERY_LEN = 480        # X recent search allows 512 chars; keep headroom
 BIO_WEIGHT, HASHTAG_WEIGHT = 2.0, 1.5
+# Keepers only. One topic match scores 3; two matches, or a match plus original high-value posts, reaches Follow back.
+# Below that a keeper is Maybe. Failed quality / bought-bot checks stay Skip and are not shown. Nothing here follows.
+FOLLOW_BACK_SCORE = 6
+CARD_TITLE = "People who match your interests"
 
 
 def _clean_post(text: str) -> str:
@@ -167,9 +178,25 @@ def score_candidate(user: dict, posts_payload: dict | None, topics: list[str], *
             "matched": matched, "quality": cv, "bought_risk": risk}
 
 
-def rank_candidates(users: list[dict], posts_by_id: dict[str, dict], topics: list[str], *,
-                    exclude_ids: Iterable[str] = (), owner_id: str | None = None, limit: int = 5, now=None) -> list[dict]:
-    """Drop excluded/owner/duplicates and anything failing the checks; best first; at most `limit` (one card)."""
+def rate_candidate(scored: dict) -> str:
+    """Follow back / Maybe / Skip from the existing keep flag and score. Skip is not offered."""
+    if not scored.get("keep"):
+        return "Skip"
+    return "Follow back" if (scored.get("score") or 0) >= FOLLOW_BACK_SCORE else "Maybe"
+
+
+def _row(user: dict, scored: dict) -> dict:
+    handle = user.get("username") or user.get("handle") or ""
+    return {"user_id": str(user.get("id") or user.get("user_id") or ""),
+            "handle": str(handle).lstrip("@"), "score": scored.get("score") or 0,
+            "why": (scored.get("reasons") or [vf.NA])[0], "reasons": list(scored.get("reasons") or []),
+            "matched": list(scored.get("matched") or []), "source": "interest_discovery",
+            "rec": rate_candidate(scored), "user": user}
+
+
+def review_users(users: list[dict], posts_by_id: dict[str, dict], topics: list[str], *,
+                 exclude_ids: Iterable[str] = (), owner_id: str | None = None, now=None) -> list[dict]:
+    """Every checked account, best first, including Skip. Caller decides what is shown."""
     ex = {str(i) for i in exclude_ids or []} | ({str(owner_id)} if owner_id else set())
     seen, out = set(), []
     for u in users or []:
@@ -177,12 +204,106 @@ def rank_candidates(users: list[dict], posts_by_id: dict[str, dict], topics: lis
         if not uid or uid in ex or uid in seen:
             continue
         seen.add(uid)
-        s = score_candidate(u, posts_by_id.get(uid), topics, now=now)
-        if s["keep"]:
-            out.append({"user_id": uid, "handle": u.get("username") or u.get("handle"), "score": s["score"],
-                        "why": s["reasons"][0], "matched": s["matched"], "source": "interest_discovery"})
+        out.append(_row(u, score_candidate(u, posts_by_id.get(uid), topics, now=now)))
     out.sort(key=lambda c: (-c["score"], c["handle"] or ""))
-    return out[:limit]
+    return out
+
+
+def _public(row: dict) -> dict:
+    return {k: row[k] for k in ("user_id", "handle", "score", "why", "matched", "source", "rec")}
+
+
+def rank_candidates(users: list[dict], posts_by_id: dict[str, dict], topics: list[str], *,
+                    exclude_ids: Iterable[str] = (), owner_id: str | None = None, limit: int | None = 5,
+                    now=None) -> list[dict]:
+    """Offered accounts only (Follow back / Maybe), best first. `limit` None keeps all of them.
+    Skip is not included. Default limit stays 5 for callers that want a single batch."""
+    offered = [r for r in review_users(users, posts_by_id, topics, exclude_ids=exclude_ids,
+                                      owner_id=owner_id, now=now) if rc.is_offered(r["rec"])]
+    if limit is not None:
+        offered = offered[:limit]
+    return [_public(r) for r in offered]
+
+
+def _card_profile(row: dict) -> dict:
+    user, handle = row["user"], row["handle"]
+    pm = user.get("public_metrics") or {}
+    matched = row.get("matched") or []
+    return {
+        "user_id": row["user_id"],
+        "handle": "@" + handle if handle else "@unknown",
+        "display_name": user.get("name") or vf.NA,
+        "url": f"https://x.com/{handle}" if handle else vf.NA,
+        "about": vf._clip(user.get("description"), 160) or vf.NA,
+        "posts_about": row.get("why") or vf.NA,
+        "interaction": {"status": "none found", "items": []},
+        "followers": pm.get("followers_count", vf.NA),
+        "following": pm.get("following_count", vf.NA),
+        "post_count": pm.get("tweet_count", pm.get("post_count", vf.NA)),
+        "rec": row["rec"], "reason": row.get("why") or vf.NA,
+        "account_health": "Account health: " + vf.NA,
+        "interest": "Interest tie-in: " + (", ".join(matched) if matched else "None found"),
+        "recency": vf.NA, "rechecked": False,
+    }
+
+
+def _disc_dir(user_key: str, root=None):
+    d = st.user_data_root(user_key, root) / "interest_discovery"
+    d.mkdir(parents=True, exist_ok=True)
+    return d
+
+
+def _skipped_path(user_key: str, root=None):
+    return _disc_dir(user_key, root) / "skipped.json"
+
+
+def _pending_path(user_key: str, run_id: str, root=None):
+    return _disc_dir(user_key, root) / f"pending_{run_id}.json"
+
+
+def skipped_ids(user_key: str, root=None) -> set[str]:
+    """Ids this owner already reviewed as Skip. Empty when there is no file. No other owner's file is read."""
+    data = st.load_json(_skipped_path(user_key, root), {"ids": {}}) or {"ids": {}}
+    return {str(i) for i in (data.get("ids") or {})}
+
+
+def remember_skips(user_key: str, user_ids: Iterable[str], *, root=None) -> int:
+    """Record Skip ids for this owner only (no handles). Existing ids keep their first_seen_at.
+    Does not write the follow log and does not follow anyone. Returns how many ids were new."""
+    ids = [str(i) for i in user_ids if str(i)]
+    if not ids:
+        return 0
+    path = _skipped_path(user_key, root)
+    data = st.load_json(path, {"ids": {}}) or {"ids": {}}
+    stored = data.setdefault("ids", {})
+    now = dt.datetime.now().astimezone().isoformat(timespec="seconds")
+    added = 0
+    for i in ids:
+        if i not in stored:
+            stored[i] = {"first_seen_at": now}
+            added += 1
+    st.save_json(path, data)
+    st.apply_user_permissions(user_key, root)
+    return added
+
+
+def _new_run_id(now=None) -> str:
+    now = now or dt.datetime.now(dt.timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=dt.timezone.utc)
+    return now.astimezone(dt.timezone.utc).strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
+
+
+def _save_pending(user_key: str, run_id: str, cards: list[dict], profiles: list[dict], root=None) -> None:
+    accounts = {}
+    for p in profiles:
+        if rc.is_offered(p.get("rec")):
+            accounts[str(p["user_id"])] = {"handle": p["handle"], "rec": p["rec"]}
+    state = {"run_id": run_id, "owner_key": user_key,
+             "cards": [{"card_no": c["card_no"], "ids": [str(i) for i in c["account_ids"]]} for c in cards],
+             "accounts": accounts}
+    st.save_json(_pending_path(user_key, run_id, root), state)
+    st.apply_user_permissions(user_key, root)
 
 
 def authors_from_search(payload: dict | None) -> list[dict]:
@@ -197,17 +318,74 @@ def authors_from_search(payload: dict | None) -> list[dict]:
 
 def run_discovery(topics: list[str], *, search: Callable[[str], dict], fetch_posts: Callable[[str], dict],
                   exclude_ids: Iterable[str] = (), owner_id: str | None = None, lang: str | None = "en",
-                  max_profiles: int = 25, limit: int = 5, now=None) -> dict:
+                  max_profiles: int = 25, limit: int | None = None, now=None,
+                  user_key: str | None = None, root=None, run_id: str | None = None) -> dict:
     """search(query) -> X search payload; fetch_posts(user_id) -> that user's recent posts payload.
-    Reads only; at most max_profiles post fetches. Returns {queries, candidates, checked}."""
+    Reads only; at most max_profiles post fetches. Does not follow anyone.
+
+    Cards list every Follow back and Maybe account (pass limit to cap how many are offered), in batches of 5,
+    nothing pre-ticked. Skip is not in `candidates` or `cards`. With user_key, those Skip ids are remembered
+    for that owner and skipped on the next run before any post fetch. `note` is set only when this round
+    reviewed someone (or only found accounts already remembered as Skip) and nobody is offered.
+    `skipped_count` is a number. Returns {run_id, queries, candidates, checked, cards, note, offered, skipped_count}.
+    """
     queries = build_queries(topics, lang=lang)
-    ex = {str(i) for i in exclude_ids or []} | ({str(owner_id)} if owner_id else set())
-    users, seen = [], set()
+    remembered = skipped_ids(user_key, root) if user_key else set()
+    ex = {str(i) for i in exclude_ids or []} | ({str(owner_id)} if owner_id else set()) | remembered
+    found, seen_ids = [], set()
     for q in queries:
         for u in authors_from_search(search(q)):
-            if str(u.get("id")) not in seen and str(u.get("id")) not in ex:
-                seen.add(str(u.get("id"))); users.append(u)
-    users = users[:max_profiles]
-    posts = {str(u["id"]): fetch_posts(str(u["id"])) for u in users}
-    return {"queries": queries, "checked": len(users),
-            "candidates": rank_candidates(users, posts, topics, exclude_ids=ex, limit=limit, now=now)}
+            uid = str(u.get("id") or "")
+            if uid and uid not in seen_ids:
+                seen_ids.add(uid)
+                found.append(u)
+    fresh = [u for u in found if str(u.get("id")) not in ex][:max_profiles]
+    posts = {str(u["id"]): fetch_posts(str(u["id"])) for u in fresh}
+    reviewed = review_users(fresh, posts, topics, now=now)
+    skips = [r for r in reviewed if not rc.is_offered(r["rec"])]
+    offered_rows = [r for r in reviewed if rc.is_offered(r["rec"])]
+    if limit is not None:
+        offered_rows = offered_rows[:limit]
+    if user_key:
+        remember_skips(user_key, [r["user_id"] for r in skips], root=root)
+    profiles = [_card_profile(r) for r in offered_rows + skips]
+    run_id = run_id or _new_run_id(now)
+    assembled = rc.assemble_review(profiles, run_id, title_prefix=CARD_TITLE)
+    note = assembled["note"]
+    if note is None and not assembled["offered"] and found and not fresh:
+        note = rc.NO_SUITABLE_NOTE
+    if user_key:
+        _save_pending(user_key, run_id, assembled["cards"], profiles, root)
+    return {"run_id": run_id, "queries": queries, "checked": len(fresh),
+            "candidates": [_public(r) for r in offered_rows], "cards": assembled["cards"], "note": note,
+            "offered": assembled["offered"], "skipped_count": len(skips)}
+
+
+def validate_pending_selection(user_key: str, run_id: str, picks: dict, *, root=None) -> dict:
+    """Check picks against this owner's pending interest-discovery cards. Does not follow.
+
+    Same rules as the verified review: Follow all and ticks are only the Follow back / Maybe accounts on that
+    card; a Skip still stored on a legacy pending card is not selected; an id or card number that is not pending
+    raises ValueError and writes nothing. Empty ticks select nobody. Appends one SELECTION per card to the
+    owner's follow log (append-only) so a later follow of those ids is the same authorized path as a verified card.
+    Returns {picked: [{user_id, handle}, ...]} for the accounts the owner actually selected.
+    """
+    state = st.load_json(_pending_path(user_key, run_id, root), None)
+    if not state or state.get("owner_key") != user_key:
+        raise ValueError(f"no pending interest review {run_id} for this owner")
+    picks = picks or {}
+    accounts = state.get("accounts") or {}
+    rec_by_id = {str(i): a.get("rec") for i, a in accounts.items()}
+    rc.check_card_keys(state.get("cards") or [], picks)
+    resolved = []
+    for c in state.get("cards") or []:
+        raw = picks.get(c["card_no"], picks.get(str(c["card_no"]), []))
+        resolved.append((c, rc.resolve_picks(c["card_no"], c["ids"], raw, rec_by_id)))
+    profs = {str(i): {"handle": a.get("handle")} for i, a in accounts.items()}
+    picked = []
+    for c, ids in resolved:
+        offered_ids = rc.selectable_ids(c["ids"], rec_by_id)
+        vf.record_selection(user_key, run_id, c["card_no"], offered_ids, ids, profs, root=root)
+        for i in ids:
+            picked.append({"user_id": i, "handle": accounts[i]["handle"]})
+    return {"picked": picked}

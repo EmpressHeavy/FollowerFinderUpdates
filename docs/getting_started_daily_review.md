@@ -1,4 +1,4 @@
-# Getting started: the daily verified follower review (v3.5.29)
+# Getting started: the daily verified follower review (v3.5.35)
 
 ## During onboarding
 1. Ask the owner what time they want the review. Default **6 PM (`18:00`) in the owner's own timezone**. Save it with
@@ -14,6 +14,8 @@
 from src import daily_review as dr
 out = dr.run_daily_review(owner_key, x, browser, prefs=None, now=None, calls_remaining=<X budget left today>)
 # show out["cards"] in chat: multi-select, nothing pre-ticked, "Follow all on this card" first
+# cards hold at most 5 accounts rated Follow back or Maybe. Skip is not on the card.
+# if out["note"] is set, say that sentence and do not list accounts
 # ...owner picks...
 summary = dr.finish_review(owner_key, out["run_id"], {card_no: [user_id | dr.FOLLOW_ALL, ...]}, browser)
 # post ONE message to the owner: summary["text"]
@@ -25,8 +27,8 @@ summary = dr.finish_review(owner_key, out["run_id"], {card_no: [user_id | dr.FOL
 4. recheck queue
 5. 90-day deep dive and score, then the account health / conduct check (`src/conduct.py`), for new and rechecked accounts
 6. bought-risk
-7. X Translate in the browser
-8. cards
+7. X Translate in the browser, for Follow back and Maybe accounts
+8. cards of at most 5, Follow back and Maybe only. Skip is marked seen (so it is not offered again as a new follower) and is not shown. If every reviewed account is Skip, `note` is "No suitable candidates this round." and `cards` is empty. Counts and Follow all use only the accounts on the card. Nothing is pre-ticked. `finish_review` rejects a pick that is not on that pending card; a legacy pending card that still lists a Skip does not follow that Skip.
 
 `finish_review` then records the picks, queues inactive accounts that weren't picked for a recheck, and follows **only**
 the picked accounts, one at a time at a natural human pace (about 20-45s apart, randomized, with a short break every 5). It stops on any warning, and every follow is logged append-only.
@@ -117,6 +119,10 @@ id, `followed_at`, `unfollowed_user_at`, `user_unfollowed_at`). If it follows yo
 gets a ⚠️ next to its name and this warning: "This account has followed you and unfollowed you before, are you sure you
 want to follow this account back?" A **Yes / No** card follows (`finish_review` returns `needs_refollow_confirmation`).
 It's followed only on Yes. The flag changes nothing else and lowers no score.
+
+## Interest discovery cards (v3.5.35)
+
+`interest_discovery.run_discovery(..., user_key=owner_key)` uses the same card rules: at most 5 accounts, only Follow back and Maybe, nothing pre-ticked, Follow all selects only that card. Skip is stored for that owner and left out of `candidates` and `cards`. If `note` is set, say it and don't list anyone. `validate_pending_selection` checks the owner's picks and does not follow. Follow those ids only through the normal follow path, at the same human pace.
 
 ## 30-day follow-back window (v3.5.28)
 

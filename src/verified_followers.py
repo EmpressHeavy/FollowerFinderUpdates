@@ -138,14 +138,18 @@ def build_profile(user: dict, owner_id: str, posts_payload: dict | None = None, 
     }
 
 
-def build_cards(profiles: list[dict], run_id: str) -> list[dict]:
-    """Checkbox cards, max CARD_SIZE each. Nothing is pre-ticked. Buttons: Follow back selected / Skip all."""
+def build_cards(profiles: list[dict], run_id: str, *, title_prefix: str = "New verified followers") -> list[dict]:
+    """Checkbox cards, max CARD_SIZE each. Nothing is pre-ticked. Buttons: Follow back selected / Skip all.
+
+    `profiles` is exactly who appears, and the title count is len(profiles). Review cards pass only
+    Follow back and Maybe through review_cards.build_review_cards; this function does not add accounts.
+    """
     cards = []
     for i in range(0, len(profiles), CARD_SIZE):
         chunk = profiles[i:i + CARD_SIZE]
         cards.append({
             "run_id": run_id, "card_no": i // CARD_SIZE + 1, "type": "multi_select",
-            "title": f"New verified followers ({i + 1}-{i + len(chunk)} of {len(profiles)})",
+            "title": f"{title_prefix} ({i + 1}-{i + len(chunk)} of {len(profiles)})",
             "options": [{"value": p["user_id"], "checked": False,
                          "label": f"{p['handle']} · {p['display_name']}",
                          "detail": (f"About: {p['about']} | Posts about: {p['posts_about']} | "
@@ -247,7 +251,9 @@ def daily_steps(cfg: dict) -> list[str]:
             "translation.translation_requests(candidates, prefs) -> for mostly-foreign-language accounts run "
             "translation.BROWSER_TRANSLATE_STEPS in the box browser (click X's own 'Translate post', copy the text, "
             "read only) -> translation.apply_browser_translations(candidate, captured)",
-            "build_cards(): checkbox cards, max 5; record_selection() on submit; mark_seen() all shown",
+            "review_cards.build_review_cards(): checkbox cards, max 5, Follow back and Maybe only "
+            "(Skip is marked seen and left off the card; if everyone is Skip the note says there is no "
+            "suitable candidate); record_selection() on submit; mark_seen() everyone reviewed, including Skip",
             "follow back ONLY picked ids with follow_executor.run_browser() + its per-account browser plan (computerUse subagent): one at a time, "
             "normal Follow button, natural human pace (about 20-45s apart, randomized, with a short break every 5), stop on any warning/rate limit/challenge/login wall, "
             "each attempt via record_follow (append-only), ONE summary at the end; then recheck_queue.record_card_outcome() "

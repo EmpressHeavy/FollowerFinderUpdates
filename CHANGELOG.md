@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.5.35
+- Verified follower review and interest discovery cards only list accounts rated Follow back or Maybe. Skip accounts are still checked and remembered, so they don't keep coming back, and they are not shown or listed. If everyone is a Skip, I just say: No suitable candidates this round.
+- Each card holds at most 5 of those accounts, the count is only the accounts on the cards, nothing starts ticked, and Follow all follows only the accounts on that card. A pick has to be one of those accounts. Nothing is followed unless you pick it. Interest discovery offers every Follow back and Maybe account from the profiles it already checks (up to 25), in those cards of 5.
+
 ## v3.5.34
 - New installs: I set my own Follower Finder profile picture right after the update check. If it doesn't work, I'll say so and keep going; ask me anytime to set or reset it.
 
