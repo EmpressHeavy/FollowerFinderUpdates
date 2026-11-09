@@ -399,6 +399,10 @@ def score_candidate(user: dict, a: dict, *, friends: Any = None, cfg: dict | Non
     if (a.get("reply_heavy") or {}).get("match") and not allow_reply_heavy:
         f.append(("low originality: short replies/quotes to big accounts", (cfg.get("reply_heavy") or DEEP_DIVE_CONFIG["reply_heavy"])["pts"]))
     for sign in det["person"]["bot_number_signs"]:
+        # A low follower count is not a penalty. Small accounts are judged on what they post.
+        # "No or almost no posts" and "High following" still count; those are behavior, not size.
+        if sign == "Very low followers":
+            continue
         f.append((sign.lower(), W["bot_number_signs"]))
     if det["bio"]["bio_words"]:
         f.append(("bio: " + ", ".join(det["bio"]["bio_words"]), W["bio_hint"]))

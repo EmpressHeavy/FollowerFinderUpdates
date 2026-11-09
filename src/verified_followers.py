@@ -206,9 +206,16 @@ def record_follow(user_key: str, run_id: str, user_id: str, handle: str, ok: boo
     """Only for ids in a prior SELECTION by the owner (enforced)."""
     if user_id not in picked_ids(user_key, run_id, root):
         raise PermissionError(f"{handle} was not picked by the owner in run {run_id}")
-    return append_log(user_key, {"event": "FOLLOWED" if ok and verified_following else "FOLLOW_FAILED",
-                                 "run_id": run_id, "user_id": user_id, "handle": handle, "method": method,
-                                 "verified_following": verified_following, "error": error}, root)
+    entry = append_log(user_key, {"event": "FOLLOWED" if ok and verified_following else "FOLLOW_FAILED",
+                                  "run_id": run_id, "user_id": user_id, "handle": handle, "method": method,
+                                  "verified_following": verified_following, "error": error}, root)
+    if ok and verified_following:
+        try:
+            from . import suggestion_history as sh
+        except ImportError:  # pragma: no cover
+            import suggestion_history as sh
+        sh.record_followed(user_key, user_id, handle, run_id=run_id, source="follow", root=root)
+    return entry
 
 
 def picked_ids(user_key: str, run_id: str, root=None) -> set[str]:
@@ -257,15 +264,23 @@ def daily_steps(cfg: dict) -> list[str]:
             "follow back ONLY picked ids with follow_executor.run_browser() + its per-account browser plan (computerUse subagent): one at a time, "
             "normal Follow button, natural human pace (about 20-45s apart, randomized, with a short break every 5), stop on any warning/rate limit/challenge/login wall, "
             "each attempt via record_follow (append-only), ONE summary at the end; then recheck_queue.record_card_outcome() "
-            "(inactive + not picked -> queued for a monthly recheck; followed / hard Skip -> removed)"]
+            "(inactive + not picked -> queued for a monthly recheck; followed / hard Skip -> removed)",
+            "suggestion_history: every offered account is logged for this owner only (append-only). A confirmed follow "
+            "and an explicit decline (Skip all) are separate states. Shown but not picked, or no follow-back, is not "
+            "a rejection and can be suggested again after the cooldown"]
 
 
 # ---- v3.5.15 follow-back scoring (owner beta spec, 2026-10-28). Product-wide: owner_handle is each user's own handle.
 import re as _re
 
 GM_RE = _re.compile(r"^\W*(gm|gn|good\s*(morning|night|evening)|gmgm|wagmi|lfg|follow\s*back|f4f|🔥+|💯+|❤+)\b", _re.I)
+# Hard bait is the whole post's point (follow-for-follow, "say hello", timed prompts). A longer genuine
+# question is not bait just because it contains a soft prompt such as "yes or no?" or "comment below".
+HARD_FARM_RE = _re.compile(r"(follow\s*(me|back)|f4f|drop your|who('s| is) (still )?here|answer in \d+ seconds|"
+                           r"retweet if|like if|say hello)", _re.I)
 FARM_RE = _re.compile(r"(follow\s*(me|back)|f4f|drop your|who('s| is) (still )?here|answer in \d+ seconds|"
                       r"retweet if|like if|say hello|comment .* below|yes or no\?)", _re.I)
+GENUINE_QUESTION_WORDS = 8
 CRYPTO_RE = _re.compile(r"(\$[A-Z]{2,6}\b(?<!\$TSLA)|airdrop|presale|memecoin|pump|100x|dm me for|whitelist|"
                         r"t\.me/|join my telegram|signals)", _re.I)
 VALUE_RE = _re.compile(r"(grok\s*imagine|grok\s*bot|built|building|shipped|prompt|agent|tutorial|thread|how to|"
@@ -283,12 +298,28 @@ def _strip_mentions(t: str) -> str:
     return _re.sub(r"^(@\w+\s*)+", "", t or "").strip()
 
 
+def is_genuine_question(text: str) -> bool:
+    """A real question with enough words to be about something. Soft bait inside it ("yes or no?",
+    "comment below") does not make it engagement bait. Hard bait, crypto and shilling still do.
+    A short "yes or no?" on its own is not genuine."""
+    t = _strip_mentions(text or "")
+    bare = LINK_RE.sub("", t).strip()
+    if "?" not in bare:
+        return False
+    if HARD_FARM_RE.search(bare) or CRYPTO_RE.search(bare):
+        return False
+    return len(_re.findall(r"[A-Za-z]{2,}", bare)) >= GENUINE_QUESTION_WORDS
+
+
 def classify_text(text: str) -> str:
-    """high | low_gm | low_farm | low_crypto | low_effort. Rule-based, explainable."""
+    """high | low_gm | low_farm | low_crypto | low_effort. Rule-based, explainable.
+    Genuine questions are high, not engagement bait."""
     t = _strip_mentions(text)
     bare = LINK_RE.sub("", t).strip()
     if CRYPTO_RE.search(t):
         return "low_crypto"
+    if is_genuine_question(text):
+        return "high"
     if FARM_RE.search(t):
         return "low_farm"
     if GM_RE.search(bare) and len(bare) < 40:

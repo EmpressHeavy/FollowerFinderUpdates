@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.5.36
+- Suggestion history (`src/suggestion_history.py`): every account offered to you is appended to your own `suggestions/history.jsonl` (append-only, hash-chained, one owner per file). A confirmed follow and an explicit decline (Skip all) are separate states. Leaving an account unticked, or that account not following you back, is not a rejection: it can be suggested again after 30 days. Until then the same account is not suggested again and is not fetched again.
+- Small accounts (1,000 followers or fewer) are judged by what they post. A low follower count is not a penalty. Spam and engagement bait are still skipped. A genuine question is not treated as bait. One research pass returns every Follow back and Maybe account, in the usual cards of at most 5, so a later run does not redo that research.
+- New discovery pass (`interest_discovery.run_size_discovery`): people who match your topics and are a similar size to you, with a healthy follower/following ratio and genuine replies (substantive, not GM/GN, farming or shilling). Missing counts or replies stay "Not available" or "None found". Nothing is followed unless you pick it.
+
 ## v3.5.35
 - Verified follower review and interest discovery cards only list accounts rated Follow back or Maybe. Skip accounts are still checked and remembered, so they don't keep coming back, and they are not shown or listed. If everyone is a Skip, I just say: No suitable candidates this round.
 - Each card holds at most 5 of those accounts, the count is only the accounts on the cards, nothing starts ticked, and Follow all follows only the accounts on that card. A pick has to be one of those accounts. Nothing is followed unless you pick it. Interest discovery offers every Follow back and Maybe account from the profiles it already checks (up to 25), in those cards of 5.

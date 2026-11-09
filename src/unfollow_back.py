@@ -494,7 +494,15 @@ def followback_window(user_key: str, x, *, now: dt.datetime | None = None, run_i
             _log(c, "FOLLOWBACK_WINDOW", run_id=run_id, user_id=r["user_id"], handle=r["handle"],
                  detail={"result": "followed_back" if back else "no_followback_30d"})
             (out["followed_back"] if back else out["due"]).append(r)
+    # Not following back is not a rejection. The suggestion log keeps it separate from an explicit decline
+    # so the account can be offered again after the cooldown (the owner may already have unfollowed).
     if out["due"]:
+        try:
+            from . import suggestion_history as sh
+        except ImportError:  # pragma: no cover
+            import suggestion_history as sh
+        for r in out["due"]:
+            sh.record_no_follow_back(user_key, r["user_id"], r["handle"], run_id=run_id, root=root, now=now)
         out["message"] = WINDOW_MESSAGE
         out["cards"] = window_cards(out["due"], run_id)
     return out

@@ -401,9 +401,11 @@ class InterestDiscoveryCards(unittest.TestCase):
         fetched2 = []
         again = disc.run_discovery(self.topics, search=self._search(users), fetch_posts=self._fetch(fetched2),
                                    user_key="interest-a", root=self.root, now=NOW)
-        self.assertNotIn("c1", fetched2)
-        self.assertNotIn("b1", fetched2)
-        self.assertEqual(again["offered"], 6)
+        self.assertEqual(fetched2, [])
+        self.assertEqual(again["offered"], 0)
+        self.assertEqual(again["qualified_ids"], [])
+        self.assertEqual(again["note"], disc.ALREADY_SUGGESTED_NOTE)
+        self.assertNotIn("keeper1", json.dumps(again["cards"]))
         fetched_b = []
         other = disc.run_discovery(self.topics, search=self._search(users), fetch_posts=self._fetch(fetched_b),
                                    user_key="interest-b", root=self.root, now=NOW)
@@ -495,9 +497,12 @@ class InterestDiscoveryCards(unittest.TestCase):
 class ReleaseMarkers(unittest.TestCase):
     def test_version_and_changelog(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertEqual((root / "VERSION").read_text().strip(), "v3.5.35")
-        self.assertIn("## v3.5.35", (root / "CHANGELOG.md").read_text())
-        self.assertIn(NOTE, (root / "CHANGELOG.md").read_text())
+        self.assertEqual((root / "VERSION").read_text().strip(), "v3.5.36")
+        changelog = (root / "CHANGELOG.md").read_text()
+        self.assertIn("## v3.5.36", changelog)
+        self.assertIn("## v3.5.35", changelog)
+        self.assertIn(NOTE, changelog)
+        self.assertIn("v3.5.36", (root / "src" / "updater.py").read_text().splitlines()[0])
 
 
 if __name__ == "__main__":

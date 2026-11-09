@@ -58,11 +58,11 @@ from typing import Any, Protocol
 
 try:
     from . import (blocked_by as bb, bought_risk as br, conduct as cd, drive_by as db, follow_executor as fx, preferences as pf,
-                   recheck_queue as rq, review_cards as rc, translation as tl, unfollow_back as ub, verified_deep_dive as dd,
-                   verified_followers as vf)
+                   recheck_queue as rq, review_cards as rc, suggestion_history as sh, translation as tl, unfollow_back as ub,
+                   verified_deep_dive as dd, verified_followers as vf)
 except ImportError:  # pragma: no cover
     import blocked_by as bb, bought_risk as br, conduct as cd, drive_by as db, follow_executor as fx, preferences as pf  # type: ignore
-    import recheck_queue as rq, review_cards as rc, translation as tl, unfollow_back as ub, verified_deep_dive as dd, verified_followers as vf  # type: ignore
+    import recheck_queue as rq, review_cards as rc, suggestion_history as sh, translation as tl, unfollow_back as ub, verified_deep_dive as dd, verified_followers as vf  # type: ignore
 
 FOLLOW_ALL = rc.FOLLOW_ALL
 FOLLOW_ALL_LABEL = rc.FOLLOW_ALL_LABEL
@@ -242,6 +242,9 @@ def run_daily_review(owner_key: str, x: XAdapter, browser: BrowserAdapter, prefs
     window = ub.followback_window(owner_key, x, now=now, root=root)  # v3.5.28 30-day follow-back window
     assembled = rc.assemble_review(kept, run_id)
     cards = ub.mark_card_options(assembled["cards"], ub.flagged(owner_key, root))
+    sh.record_suggested(owner_key, offered_profiles, source="verified_review", run_id=run_id, root=root, now=now)
+    sh.record_pass(owner_key, pass_id=run_id, source="verified_review",
+                   qualified_ids=[p["user_id"] for p in offered_profiles], checked=len(shown), root=root, now=now)
     vf.mark_seen(owner_key, [u for u, _ in shown], root)  # includes Skip, so select_new will not return them
     state = {"run_id": run_id, "owner_key": owner_key, "cards": [{"card_no": c["card_no"], "ids": c["account_ids"]} for c in cards],
              "shown": [{"user": u, "r": _slim(s), "handle": "@" + u["username"]} for u, s in shown]}
@@ -274,22 +277,32 @@ def finish_review(owner_key: str, run_id: str, picks: dict, browser: BrowserAdap
     rec_by_id = {i: (s.get("r") or {}).get("rec") for i, s in shown.items()}
     hard_ids = {i for i, s in shown.items() if (s.get("r") or {}).get("hard_skip")}
     rc.check_card_keys(state["cards"], picks)
+    submit_all = not picks
     resolved = []
     for c in state["cards"]:
-        raw = picks.get(c["card_no"], picks.get(str(c["card_no"]), []))
-        resolved.append((c, rc.resolve_picks(c["card_no"], c["ids"], raw, rec_by_id, hard_skip_ids=hard_ids)))
+        key_present = submit_all or c["card_no"] in picks or str(c["card_no"]) in picks
+        raw = [] if submit_all else picks.get(c["card_no"], picks.get(str(c["card_no"]), []))
+        if key_present and sh.is_decline_answer(raw):
+            resolved.append((c, [], True, True))
+        else:
+            resolved.append((c, rc.resolve_picks(c["card_no"], c["ids"], raw, rec_by_id, hard_skip_ids=hard_ids),
+                             False, key_present))
     flags = ub.flagged(owner_key, root)
     conf = {str(k): v for k, v in (refollow_confirmations or {}).items()}
     pending = []
-    for _c, ids in resolved:
+    for _c, ids, _declined, _answered in resolved:
         pending += [ub.refollow_gate_card(i, shown[i]["handle"]) for i in ids
                     if i in flags and conf.get(i) not in (ub.YES, ub.NO)]
     if pending:
         return {"needs_refollow_confirmation": pending, "followed": [], "text": ub.REFOLLOW_WARNING}
     picked: list[str] = []
-    for c, ids in resolved:
+    handles = {i: s["handle"] for i, s in shown.items()}
+    for c, ids, declined, answered in resolved:
         offered_ids = rc.selectable_ids(c["ids"], rec_by_id, hard_skip_ids=hard_ids)
         vf.record_selection(owner_key, run_id, c["card_no"], offered_ids, ids, profs, root=root)
+        if answered:
+            sh.record_card_result(owner_key, run_id, c["ids"], ids, handles, declined=declined,
+                                  source="verified_review", root=root, now=now)
         picked += ids
     rq.record_card_outcome(owner_key, [(s["user"], s["r"]) for s in state["shown"]], picked, now=now, root=root)
     plan = [{"user_id": i, "handle": shown[i]["handle"], "follows_user": True} for i in picked]

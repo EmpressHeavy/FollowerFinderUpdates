@@ -1,4 +1,4 @@
-# Getting started: the daily verified follower review (v3.5.35)
+# Getting started: the daily verified follower review (v3.5.36)
 
 ## During onboarding
 1. Ask the owner what time they want the review. Default **6 PM (`18:00`) in the owner's own timezone**. Save it with
@@ -122,7 +122,24 @@ It's followed only on Yes. The flag changes nothing else and lowers no score.
 
 ## Interest discovery cards (v3.5.35)
 
-`interest_discovery.run_discovery(..., user_key=owner_key)` uses the same card rules: at most 5 accounts, only Follow back and Maybe, nothing pre-ticked, Follow all selects only that card. Skip is stored for that owner and left out of `candidates` and `cards`. If `note` is set, say it and don't list anyone. `validate_pending_selection` checks the owner's picks and does not follow. Follow those ids only through the normal follow path, at the same human pace.
+`interest_discovery.run_discovery(..., user_key=owner_key)` uses the same card rules: at most 5 accounts, only Follow back and Maybe, nothing pre-ticked, Follow all selects only that card. One pass returns every Follow back and Maybe account from the profiles it checks, split across those cards. Skip is stored for that owner and left out of `candidates` and `cards`. If `note` is set, say it and don't list anyone. `validate_pending_selection` checks the owner's picks and does not follow. Follow those ids only through the normal follow path, at the same human pace.
+
+## Suggestion history (v3.5.36)
+
+Offered accounts are appended to that owner's `data/users/<user_key>/suggestions/history.jsonl`. Do not suggest the same account again while it is in that log as suggested, followed, or declined. Pass `user_key` into discovery and the daily review already logs its own cards.
+
+- Confirmed follow: recorded when the follow is verified. Not a rejection, and not offered again while that follow stands.
+- Explicit decline: the owner answered **Skip all** (or `suggestion_history.DECLINE_ALL`) on that card. That is a rejection. Do not offer the account again.
+- Left unticked: `NOT_PICKED`. Not a rejection. It can come back after 30 days.
+- Did not follow back: the 30-day window records `NO_FOLLOW_BACK`. Not a rejection. It can come back after 30 days. Still pass accounts you follow now in `exclude_ids`.
+
+An empty tick list is not a decline. Say `note` when it is set, including when everyone from the last pass is still in the cooldown.
+
+## Small accounts and size discovery (v3.5.36)
+
+Accounts with 1,000 followers or fewer are scored from their posts. Do not skip or down-rank them for being small. Spam, crypto shilling and engagement bait still fail. A real question (enough words, not a follow-for-follow or "say hello" prompt) is not bait. If a follower count was not read, say "Not available". Do not treat it as zero.
+
+`interest_discovery.run_size_discovery(topics, owner_followers=<count>, search=..., fetch_posts=..., fetch_replies=..., user_key=owner_key)` is the extra pass for follow-backs and friendships. It keeps accounts that match the owner's topics, are a similar size (about a quarter to four times the owner's followers), have a follower/following ratio of at least 0.2, and whose replies are substantive. GM/GN, farming and shilling replies do not qualify. `fetch_replies` returns `{"data": [...]}`. `None` from that read is "Not available". An empty list is "None found". If you do not know the owner's follower count, pass `owner_followers=None` and say the note; do not invent a number. Cards are the same: every qualified account, at most 5 per card, nothing pre-ticked, and nothing is followed unless the owner picks it. A repeat call does not fetch accounts already suggested or already checked until the cooldown ends.
 
 ## 30-day follow-back window (v3.5.28)
 
