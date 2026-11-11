@@ -45,6 +45,11 @@ def to_scan_raw(rec: dict[str, Any]) -> dict[str, Any]:
 
 def import_archive(zip_path: str | Path, *, user_key: str, account_handle: str | None = None,
                    root: str | Path | None = None) -> dict[str, Any]:
+    try:
+        from . import license_check
+    except ImportError:  # pragma: no cover
+        import license_check
+    license_check.require("scan", root=root)
     if not account_handle:
         cfg = load_user_config_dict(root, user_key=user_key)
         account_handle = cfg.get("owner_x_handle") or cfg.get("x_handle")

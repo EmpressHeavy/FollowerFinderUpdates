@@ -1,0 +1,6 @@
+{
+  "product": "ff",
+  "base_url": "https://bt-license-test.empressheavy.workers.dev",
+  "grace_hours": 72,
+  "timeout_seconds": 10
+}

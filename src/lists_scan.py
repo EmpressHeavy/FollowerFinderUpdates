@@ -235,6 +235,11 @@ def build_snapshot(user_key: str, root=None, *, records: list[dict] | None = Non
                    inspections: list[dict] | None = None, when: str | None = None,
                    scope: str = SCOPE_ALL) -> dict:
     """Memberships rows + deep inspections (matched by row_index, list ID or URL) -> frozen snapshot."""
+    try:
+        from . import license_check
+    except ImportError:  # pragma: no cover
+        import license_check
+    license_check.require("scan", root=root)
     base = st.user_data_root(user_key, root)
     rows = list(records) if records is not None else _read_dir(base / "lists_raw")
     insp = list(inspections) if inspections is not None else _read_dir(base / "lists_inspect")
