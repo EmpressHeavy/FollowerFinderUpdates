@@ -14,7 +14,7 @@ Save it with the interests (brain.db `fact`, subject `owner_preferences`, predic
 Daily review: pass `preferences.get_allow_reply_heavy(user_key)` to `verified_deep_dive.deep_dive(...,
 allow_reply_heavy=...)` and to `recheck_queue.process_due(...)`.
 
-Monthly settings check-in: before the unfollow-back check, run `python3 -m src.license_check require scan`, and before any unfollow run `python3 -m src.license_check require write`. If the subscription isn't active, say so kindly, show the text the command prints (keep the [Subscribe](...) link clickable), and don't delete records or the X login. The settings summary also covers this preference. Pass
+Monthly settings check-in: the settings summary also covers this preference. Pass
 `allow_reply_heavy=preferences.get_allow_reply_heavy(user_key)` to `build_monthly_settings_card.build()`. That adds the
 line "Reply-heavy accounts ...: INCLUDED / scored down (default)" under 6-7. If the owner taps it, show the same yes/no
 card again, save the answer and push the backup.

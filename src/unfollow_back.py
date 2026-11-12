@@ -63,14 +63,6 @@ WINDOW_MESSAGE = ("hey, these accounts you have followed, but they havn't follow
                   "unfollow or keep following them?")  # owner's wording, verbatim
 KEPT_WARNING = "Heads up: I won't remind you about these accounts again, even if they never follow you back."
 
-
-def _license(action: str, root) -> None:
-    try:
-        from . import license_check
-    except ImportError:  # pragma: no cover
-        import license_check
-    license_check.require(action, root=root)
-
 BROWSER_FOLLOWS_YOU_CHECK_STEPS = (
     "Browser step: does this account still follow the owner? (box browser, signed in to X; read only). Only used when "
     "the X plugin's follower list could not be read completely.\n"
@@ -224,7 +216,6 @@ def recheck(user_key: str, x, browser=None, *, run_id: str | None = None, root=N
            "source": FOLLOWS_YOU_TOOL}
     if not rows:
         return out
-    _license("scan", root)
     followers, why = _page_all(x, FOLLOWS_YOU_TOOL)
     following, _ = _page_all(x, FOLLOWING_TOOL)
     status: dict[str, bool | None] = {}
@@ -333,7 +324,6 @@ def execute_unfollows(user_key: str, run_id: str, picks: list[dict], browser_unf
     signed in as the owner, nothing is unfollowed (status needs_x_signin / wrong_account + 'action').
     picks: [{'user_id','handle'}]; each must be in an UNFOLLOW_SELECTION for run_id (else PermissionError, nothing done).
     browser_unfollow(handle) -> {'ok', 'verified_unfollowed', 'stop', 'error'}."""
-    _license("write", root)
     with mem._Tx(user_key, root) as c:
         allowed = _picked(c, run_id)
         rows = {r[0]: r for r in c.execute("SELECT user_id,handle,followed_at,last_checked FROM tracked_follow")}
@@ -491,7 +481,6 @@ def followback_window(user_key: str, x, *, now: dt.datetime | None = None, run_i
     out = {"run_id": run_id, "due": [], "followed_back": [], "status": "ok", "message": None, "cards": []}
     if not due:
         return out
-    _license("scan", root)
     followers, why = _page_all(x, FOLLOWS_YOU_TOOL)
     if followers is None:
         out["status"] = NA

@@ -111,11 +111,6 @@ def run(user_key: str, run_id: str, picks: list[dict], browser_follow: Callable[
     """picks: [{'user_id','handle'}] in card order (all of them for 'Follow all'). browser_follow(handle) -> {'ok': bool,
     'verified_following': bool, 'stop': None|one of STOP_REASONS, 'error': str|None}. skip(pick) -> reason or None,
     for guard filters. When skip isn't given, blocked_by.follow_guard is used, so blocked accounts are always refused. Returns one summary; nothing is sent per follow."""
-    try:
-        from . import license_check
-    except ImportError:  # pragma: no cover
-        import license_check
-    license_check.require("follow", root=root)
     if skip is None:
         try:
             from . import blocked_by as bb
@@ -362,11 +357,6 @@ class FollowSession:
                  rand: Callable[[float, float], float] = random.uniform, skip: Callable[[dict], str | None] | None = None,
                  root=None, track_source: str = "follow_back", owner_handle: str | None = None,
                  vault_saved: bool | None = None, relogin_attempts: int = 0):
-        try:
-            from . import license_check
-        except ImportError:  # pragma: no cover
-            import license_check
-        license_check.require("follow", root=root)
         try:
             from . import unfollow_back as ub, blocked_by as bb
         except ImportError:  # pragma: no cover

@@ -131,7 +131,6 @@ def run_list_removals(user_key: str, snapshot_id: str, adapter, *, root=None, no
     Graveyard tab and a line to the Book change log. If it raises, the run stops (the entry stays saved locally and
     list_flow.catch_up() writes whatever is missing). only_list_id: act on just that one authorized list."""
     st.validate_user_key(user_key)
-    rr._license_gate("write", root)
     with rr.run_lock(user_key, root, "list", snapshot_id):
         cfg, tz, now_fn, now, hist = _start(user_key, root, now_fn)
         _snapshot_ok(user_key, snapshot_id, root, now, cfg)
@@ -261,7 +260,6 @@ def run_owner_blocks(user_key: str, list_snapshot_id: str, adapter, *, root=None
                      sleep: Callable[[float], None] = time.sleep, out=sys.stdout) -> dict[str, Any]:
     """Permanent block of repeat offenders: Done on the keycard, or the standing 'auto_block' setting."""
     st.validate_user_key(user_key)
-    rr._license_gate("write", root)
     with rr.run_lock(user_key, root, "list owner block", list_snapshot_id):
         cfg, tz, now_fn, now, hist = _start(user_key, root, now_fn)
         _snapshot_ok(user_key, list_snapshot_id, root, now, cfg)

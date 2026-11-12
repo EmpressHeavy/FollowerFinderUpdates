@@ -497,21 +497,23 @@ class InterestDiscoveryCards(unittest.TestCase):
 class ReleaseMarkers(unittest.TestCase):
     def test_version_and_changelog(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertEqual((root / "VERSION").read_text().strip(), "v3.5.39")
+        self.assertEqual((root / "VERSION").read_text().strip(), "v3.5.40")
         changelog = (root / "CHANGELOG.md").read_text()
+        self.assertIn("## v3.5.40", changelog)
         self.assertIn("## v3.5.39", changelog)
         self.assertIn("## v3.5.38", changelog)
         self.assertIn("## v3.5.37", changelog)
         self.assertIn("## v3.5.36", changelog)
         self.assertIn("## v3.5.35", changelog)
+        self.assertLess(changelog.index("## v3.5.40"), changelog.index("## v3.5.39"))
         self.assertLess(changelog.index("## v3.5.39"), changelog.index("## v3.5.38"))
         self.assertLess(changelog.index("## v3.5.38"), changelog.index("## v3.5.37"))
         self.assertLess(changelog.index("## v3.5.37"), changelog.index("## v3.5.36"))
         self.assertIn("no longer delete per-user state", changelog)
-        self.assertIn("$4.49/month", changelog)
-        self.assertIn("https://empressheavy.com/subscribe/", changelog)
+        self.assertIn("free for everyone", changelog)
+        self.assertNotIn("$4.49", changelog)
         self.assertIn(NOTE, changelog)
-        self.assertIn("v3.5.39", (root / "src" / "updater.py").read_text().splitlines()[0])
+        self.assertIn("v3.5.40", (root / "src" / "updater.py").read_text().splitlines()[0])
 
 
 if __name__ == "__main__":

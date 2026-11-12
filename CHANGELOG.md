@@ -1,11 +1,15 @@
 # Changelog
 
+## v3.5.40
+- Follower Finder is now free for everyone. There is nothing to pay, and no install code or lock card anymore: scans, suggestions, follows, and other X actions no longer wait on a check.
+- Removed `src/license_check.py`, `config/license.json`, and their tests. `~/follower_finder/data/install_license.json` from v3.5.38 or v3.5.39 is no longer used, and any routine step that ran the old check is dropped. Records, settings, and the X login are kept.
+- Installs and updates still always take the latest VERSION on main, with no older-version menu.
+
 ## v3.5.39
-- An unpaid or unconfirmed install now shows a clickable Subscribe link to https://empressheavy.com/subscribe/?product=ff&install_id=... so the product and install ID are already filled in, and still keeps the license-server `/pay` checkout as a fallback. The bot also shows the install ID so it can be copied.
-- First install and updates from this repo always take the latest VERSION on main. The bot must not offer older versions, tags, or commits, or treat commit messages as a version menu. The subscription check cannot be skipped by installing an older build.
+- First install and updates from this repo always take the latest VERSION on main. The bot must not offer older versions, tags, or commits, or treat commit messages as a version menu.
 
 ## v3.5.38
-- Subscription check before a scan, a suggestion, a follow, or any other change on X. Follower Finder is $4.49/month, or $8.99/month bundled with Bot Terminator, via https://empressheavy.com/subscribe/. If the subscription isn't active, that action stops, your records and X login stay, and the renew link is shown.
+- Paid-plan release, withdrawn in v3.5.40 (Follower Finder is free).
 
 ## v3.5.37
 - Updates no longer delete per-user state. `updater.py apply` copies `app/data/`, `app/memory/` and any `app/*.db` aside (also under `user-data-backups/`) before swapping code, puts those files back byte-for-byte, and restores the previous app snapshot if the swap fails. A release that ships files under `data/` only adds paths that are not already there.
