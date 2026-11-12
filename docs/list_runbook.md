@@ -5,7 +5,6 @@ browser, one list at a time, exactly as below, and report what you saw to `list_
 
 ## When you may run this
 
-- First run `python3 -m src.license_check require write` from `~/follower_finder/app`. If it does not print `subscription active`, stop. Show the owner the text it printed (the subscription isn't active, with the clickable Subscribe link, install ID, and `/pay` fallback). Do not open X, block, or leave a list. Do not delete records or the X login.
 - The user tapped **Remove me from these lists** (batch card) or **Remove me from selected lists** (final skipped card).
   In Automatic Mode (the default) that tap IS the authorization: start right away. In Manual Mode ask for a yes first.
 - `list_flow.handle_answer(...)` records the tap and returns `execute_now` / `awaiting_confirmation` and the `tasks`.

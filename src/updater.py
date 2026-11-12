@@ -1,15 +1,15 @@
-"""Follower Finder self-updater (v3.5.39).
+"""Follower Finder self-updater (v3.5.40).
 
 Updates come ONLY from https://github.com/EmpressHeavy/FollowerFinderUpdates (branch main).
 Always install the latest version: the published VERSION file on main. This tool has no switch for an older tag, commit, or version.
-Callers must not invent one or offer a version menu. The subscription check cannot be skipped by choosing an older build.
+Callers must not invent one or offer a version menu.
 Layout installed under HOME (default ~/follower_finder, test installs pass their own folder):
   HOME/app/        code + SKILL.md + VERSION (replaced on update)
   HOME/app/data/   per-user state (verified_review, memory/brain.db, and the rest). Never deleted.
   HOME/app/memory and HOME/app/*.db are per-user state too, when they live in the app tree.
   HOME/snapshots/  previous app/ copies (rollback)
   HOME/user-data-backups/  copy of that per-user state, taken before the code is swapped
-Everything else in HOME (brain.db, backup/, hive.py, ff_feedback.py, logs, data/install_license.json) is owner data and is never touched.
+Everything else in HOME (brain.db, backup/, hive.py, ff_feedback.py, logs) is owner data and is never touched.
 A release that ships files under data/ only adds paths that are not already there. Existing user files are not
 overwritten, truncated, or removed. If the swap fails, the previous app snapshot (including that user data) is put back.
 

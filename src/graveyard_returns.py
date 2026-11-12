@@ -214,7 +214,6 @@ def run_blocks(user_key: str, snapshot_id: str, adapter, *, root=None,
                now_fn: Callable[[], dt.datetime] | None = None, sleep: Callable[[float], None] = time.sleep,
                out=sys.stdout) -> dict[str, Any]:
     st.validate_user_key(user_key)
-    rr._license_gate("write", root)
     with rr.run_lock(user_key, root, "block", snapshot_id):  # one run at a time (shared with removals)
         return _run_blocks(user_key, snapshot_id, adapter, root=root, now_fn=now_fn, sleep=sleep, out=out)
 

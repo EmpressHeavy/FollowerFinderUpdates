@@ -282,22 +282,10 @@ def _graveyard(user_key: str, root, rec: dict) -> None:
     st._mirror(lambda r: r.record_graveyard_event, user_key, rec, root=root)  # v3.5.0 write-through
 
 
-def _license_gate(action: str, root) -> None:
-    try:
-        from . import license_check
-    except ImportError:  # pragma: no cover
-        import license_check
-    try:
-        license_check.require(action, root=root)
-    except license_check.LicenseError as exc:
-        raise RefusedError(str(exc)) from exc
-
-
 def run_removals(user_key: str, snapshot_id: str, adapter: RemovalAdapter, *, root=None,
                  now_fn: Callable[[], dt.datetime] | None = None, sleep: Callable[[float], None] = time.sleep,
                  start_followers: int | None = None, out=sys.stdout) -> dict[str, Any]:
     st.validate_user_key(user_key)
-    _license_gate("write", root)
     with run_lock(user_key, root, "removal", snapshot_id):
         return _run_removals(user_key, snapshot_id, adapter, root=root, now_fn=now_fn, sleep=sleep,
                              start_followers=start_followers, out=out)

@@ -59,13 +59,9 @@ def routine_specs(sched: dict | None, time_zone: str | None, *, home: str = "~/f
     tz = time_zone or "America/Los_Angeles"
     rev = rs.routine_spec(sched or rs.DEFAULT, tz)
     return [
-        {**rev, "name": REVIEW_ROUTINE, "can_turn_off": True,
-         "before": "python3 -m src.license_check require scan"},
+        {**rev, "name": REVIEW_ROUTINE, "can_turn_off": True},
         {"name": MONTHLY_ROUTINE, "cron": MONTHLY_CRON, "time_zone": tz, "can_turn_off": True,
-         "before": "python3 -m src.license_check require scan",
-         "does": ["python3 -m src.license_check require scan, then unfollow_back.run_monthly",
-                  "python3 -m src.license_check require write before any unfollow",
-                  "build_monthly_settings_card.build (settings, review schedule, "
+         "does": ["unfollow_back.run_monthly", "build_monthly_settings_card.build (settings, review schedule, "
                   "daily limits, backup status, Hive Mind status)", "re-create the weekly update check if missing"]},
         {"name": UPDATE_ROUTINE, "cron": UPDATE_CRON, "time_zone": tz, "can_turn_off": False,
          "command": update_command(home), "on_result": "setup_flow.update_message"},
