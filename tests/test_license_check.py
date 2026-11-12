@@ -72,10 +72,10 @@ class LicenseCheckTests(unittest.TestCase):
         for needle in ("4.49", "8.99", "449", "899"):
             self.assertNotIn(needle, text)
 
-    def test_shipped_config_uses_the_test_server_and_product_ff(self):
+    def test_shipped_config_points_at_the_live_server(self):
         cfg = json.loads((ROOT / "config" / "license.json").read_text(encoding="utf-8"))
         self.assertEqual(cfg["product"], "ff")
-        self.assertEqual(cfg["base_url"], "https://bt-license-test.empressheavy.workers.dev")
+        self.assertEqual(cfg["base_url"], "https://empress-license.empressheavy.workers.dev")
         self.assertEqual(cfg["grace_hours"], 72)
 
     def test_inactive_refuses_and_keeps_the_renew_link(self):
@@ -100,11 +100,13 @@ class LicenseCheckTests(unittest.TestCase):
         self.assertIn("records are still here", message)
         self.assertIn("X login", message)
         self.assertIn("4.49 USD/month", message)
-        self.assertIn("https://license.example/pay", message)
+        pay = "https://license.example/pay?install_id=" + ("a" * 32) + "&product=ff"
+        self.assertIn(pay, message)
         self.assertEqual(seen["payload"], {"install_id": "a" * 32, "product": "ff"})
         self.assertNotIn("both", seen["payload"].values())
         state = json.loads((self.root / "data" / "install_license.json").read_text(encoding="utf-8"))
         self.assertEqual(set(state), {"install_id", "last_active_at", "last_renew_url", "last_price"})
+        self.assertEqual(state["last_renew_url"], pay)
         self.assertIsNone(state["last_active_at"])
         self.assertNotIn("handle", json.dumps(state))
 
@@ -186,6 +188,7 @@ class LicenseCheckTests(unittest.TestCase):
         with self.assertRaises(lc.LicenseError) as caught:
             lc.require("follow", root=self.root, now=NOW)
         self.assertIn("records are still here", str(caught.exception))
+        self.assertIn("https://empressheavy.com/subscribe/", str(caught.exception))
         self.assertEqual(kept.read_text(encoding="utf-8"), '{"event":"keep"}\n')
 
     def test_removal_runner_refuses_before_any_x_work(self):

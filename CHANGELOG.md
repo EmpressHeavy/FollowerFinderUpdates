@@ -1,5 +1,8 @@
 # Changelog
 
+## v3.5.38
+- Subscription check before a scan, a suggestion, a follow, or any other change on X. Follower Finder is $4.49/month, or $8.99/month bundled with Bot Terminator, via https://empressheavy.com/subscribe/. If the subscription isn't active, that action stops, your records and X login stay, and the renew link is shown.
+
 ## v3.5.37
 - Updates no longer delete per-user state. `updater.py apply` copies `app/data/`, `app/memory/` and any `app/*.db` aside (also under `user-data-backups/`) before swapping code, puts those files back byte-for-byte, and restores the previous app snapshot if the swap fails. A release that ships files under `data/` only adds paths that are not already there.
 - X user ids and tweet ids in id fields (`user_id`, `id`, `ids`, `*_id`) are not treated as card numbers. A real card number in other text is still refused. A follow batch is checked before any FOLLOWED or FOLLOW_VERIFIED row is written, so a filter rejection cannot leave a half-written log.

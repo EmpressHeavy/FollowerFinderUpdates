@@ -502,6 +502,8 @@ class ReleaseMarkers(unittest.TestCase):
         self.assertIn("## v3.5.37", changelog)
         self.assertIn("## v3.5.36", changelog)
         self.assertIn("## v3.5.35", changelog)
+        self.assertIn("$4.49/month", changelog)
+        self.assertIn("https://empressheavy.com/subscribe/", changelog)
         self.assertIn(NOTE, changelog)
         self.assertIn("v3.5.37", (root / "src" / "updater.py").read_text().splitlines()[0])
 
