@@ -82,6 +82,14 @@ _SECRET_PATTERNS = [re.compile(p, re.I) for p in (
     r"(auth_token|ct0)=[A-Za-z0-9]{16,}", r"https?://[^/\s:@]+:[^/\s@]+@",
 )]
 _CARD_RE = re.compile(r"\b(?:\d[ -]?){13,19}\b")
+# X snowflake ids live in these fields (and any key ending in _id / _ids). They are not card numbers,
+# even when a 19-digit id happens to pass the Luhn check.
+_ID_KEYS = {"id", "ids"}
+
+
+def _is_id_key(key) -> bool:
+    k = str(key or "").strip().lower()
+    return k in _ID_KEYS or k.endswith("_id") or k.endswith("_ids")
 
 
 def _luhn(digits: str) -> bool:
@@ -94,18 +102,53 @@ def _luhn(digits: str) -> bool:
     return s % 10 == 0
 
 
+def _reject_secret_text(text: str) -> None:
+    if any(p.search(text) for p in _SECRET_PATTERNS):
+        raise SecretRejected("refused: that looks like a secret (password/token/key). Secrets are never stored in memory.")
+
+
+def _reject_card_text(text: str) -> None:
+    for m in _CARD_RE.finditer(text):
+        d = re.sub(r"\D", "", m.group())
+        if 13 <= len(d) <= 19 and _luhn(d) and len(set(d)) > 1:
+            raise SecretRejected("refused: that looks like a card number. Secrets are never stored in memory.")
+
+
+def _scan_secret(value, *, skip_cards: bool = False) -> None:
+    """Walk dicts, lists and JSON objects. Card checks skip id fields; every other string is still checked."""
+    if value is None or isinstance(value, bool):
+        return
+    if isinstance(value, dict):
+        for key, item in value.items():
+            _scan_secret(item, skip_cards=_is_id_key(key))
+        return
+    if isinstance(value, (list, tuple)):
+        for item in value:
+            _scan_secret(item, skip_cards=skip_cards)
+        return
+    if isinstance(value, (int, float)):
+        text = str(int(value)) if isinstance(value, float) and value.is_integer() else str(value)
+    else:
+        text = str(value)
+        if text[:1] in "{[":
+            try:
+                parsed = json.loads(text)
+            except ValueError:
+                parsed = None
+            if isinstance(parsed, (dict, list)):
+                _scan_secret(parsed, skip_cards=skip_cards)
+                return
+    _reject_secret_text(text)
+    if not skip_cards:
+        _reject_card_text(text)
+
+
 def check_no_secret(*values) -> None:
-    """Raise SecretRejected if any value looks like a password, token, key or card number."""
+    """Raise SecretRejected if any value looks like a password, token, key or card number.
+    Pass a dict (or a JSON object) so user_id, tweet_id, id, ids and other *_id fields are not treated as cards.
+    A card number in any other field or in free text is still refused."""
     for v in values:
-        if v is None:
-            continue
-        t = str(v)
-        if any(p.search(t) for p in _SECRET_PATTERNS):
-            raise SecretRejected("refused: that looks like a secret (password/token/key). Secrets are never stored in memory.")
-        for m in _CARD_RE.finditer(t):
-            d = re.sub(r"\D", "", m.group())
-            if 13 <= len(d) <= 19 and _luhn(d) and len(set(d)) > 1:
-                raise SecretRejected("refused: that looks like a card number. Secrets are never stored in memory.")
+        _scan_secret(v)
 
 
 # ---------- paths and setup ----------
@@ -210,7 +253,7 @@ def add(user_key: str, table: str, values: dict, root=None) -> int:
         raise ValueError(f"add works on: {', '.join(t for t in TABLES if t not in ('fact', 'event_log', 'lesson'))}")
     if not values or not all(_IDENT.match(k) for k in values):
         raise ValueError("give column=value pairs")
-    check_no_secret(*values.values())
+    check_no_secret(values)
     with _Tx(user_key, root) as c:
         cols = {r[1] for r in c.execute(f"PRAGMA table_info({table})")}
         bad = set(values) - cols
@@ -224,7 +267,9 @@ def add(user_key: str, table: str, values: dict, root=None) -> int:
 
 def fact(user_key: str, subject: str, predicate: str, value: str, *, source: str | None = None, root=None) -> dict:
     """Close the subject's current row for this predicate (valid_to=today) and insert the new value."""
-    check_no_secret(subject, predicate, value, source)
+    fields = {"subject": subject, "predicate": predicate, "source": source}
+    fields[predicate if _is_id_key(predicate) else "value"] = value
+    check_no_secret(fields)
     today = dt.date.today().isoformat()
     with _Tx(user_key, root) as c:
         sid = _eid(c, subject)
@@ -506,7 +551,7 @@ def export(user_key: str, out_dir, root=None) -> list[Path]:
             cols = [d[0] for d in cur.description]
             lines = []
             for row in cur:
-                check_no_secret(*row)
+                check_no_secret(dict(zip(cols, row)))
                 lines.append(json.dumps(dict(zip(cols, row)), ensure_ascii=False, sort_keys=True))
             (out / f"{t}.jsonl").write_text("".join(x + "\n" for x in lines), encoding="utf-8")
             files.append(out / f"{t}.jsonl")

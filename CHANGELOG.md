@@ -1,5 +1,9 @@
 # Changelog
 
+## v3.5.37
+- Updates no longer delete per-user state. `updater.py apply` copies `app/data/`, `app/memory/` and any `app/*.db` aside (also under `user-data-backups/`) before swapping code, puts those files back byte-for-byte, and restores the previous app snapshot if the swap fails. A release that ships files under `data/` only adds paths that are not already there.
+- X user ids and tweet ids in id fields (`user_id`, `id`, `ids`, `*_id`) are not treated as card numbers. A real card number in other text is still refused. A follow batch is checked before any FOLLOWED or FOLLOW_VERIFIED row is written, so a filter rejection cannot leave a half-written log.
+
 ## v3.5.36
 - Suggestion history (`src/suggestion_history.py`): every account offered to you is appended to your own `suggestions/history.jsonl` (append-only, hash-chained, one owner per file). A confirmed follow and an explicit decline (Skip all) are separate states. Leaving an account unticked, or that account not following you back, is not a rejection: it can be suggested again after 30 days. Until then the same account is not suggested again and is not fetched again.
 - Small accounts (1,000 followers or fewer) are judged by what they post. A low follower count is not a penalty. Spam and engagement bait are still skipped. A genuine question is not treated as bait. One research pass returns every Follow back and Maybe account, in the usual cards of at most 5, so a later run does not redo that research.

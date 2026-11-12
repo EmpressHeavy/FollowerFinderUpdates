@@ -486,10 +486,23 @@ class FollowSession:
         if self._pending is not None:
             raise RuntimeError("an account is still waiting for its report")
         ub, user_key, run_id, root = self._ub, self.user_key, self.run_id, self.root
+        try:
+            from . import memory as mem
+        except ImportError:  # pragma: no cover
+            import memory as mem
         following = _following_ids(x) if self.results else None
-        out = {FOLLOWED: [], PENDING: [], FAILED: [], NOT_AVAILABLE: []}
+        # Validate the whole batch before any FOLLOWED / FOLLOW_VERIFIED line is appended.
+        # A secret-filter rejection must not leave the earlier accounts written and the rest missing.
+        planned = []
         for it in self.results:
             st = verify_status(it["report"], it["user_id"], following)
+            p = it["pick"]
+            mem.check_no_secret({"user_id": it["user_id"], "handle": it["handle"],
+                                 "source": p.get("source", self.track_source), "status": st,
+                                 "tweet_id": it.get("tweet_id"), "ids": it.get("ids")})
+            planned.append((it, st))
+        out = {FOLLOWED: [], PENDING: [], FAILED: [], NOT_AVAILABLE: []}
+        for it, st in planned:
             out[st].append(it["handle"])
             vf.record_follow(user_key, run_id, it["user_id"], it["handle"], st == FOLLOWED,
                              verified_following=st == FOLLOWED, error=None if st == FOLLOWED else st, root=root)

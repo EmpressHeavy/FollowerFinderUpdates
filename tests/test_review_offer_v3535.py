@@ -497,12 +497,13 @@ class InterestDiscoveryCards(unittest.TestCase):
 class ReleaseMarkers(unittest.TestCase):
     def test_version_and_changelog(self):
         root = Path(__file__).resolve().parents[1]
-        self.assertEqual((root / "VERSION").read_text().strip(), "v3.5.36")
+        self.assertEqual((root / "VERSION").read_text().strip(), "v3.5.37")
         changelog = (root / "CHANGELOG.md").read_text()
+        self.assertIn("## v3.5.37", changelog)
         self.assertIn("## v3.5.36", changelog)
         self.assertIn("## v3.5.35", changelog)
         self.assertIn(NOTE, changelog)
-        self.assertIn("v3.5.36", (root / "src" / "updater.py").read_text().splitlines()[0])
+        self.assertIn("v3.5.37", (root / "src" / "updater.py").read_text().splitlines()[0])
 
 
 if __name__ == "__main__":

@@ -146,7 +146,7 @@ def record_follow(user_key: str, user_id, handle: str, *, source: str, followed_
     """Called for every confirmed follow made through Follower Finder. Re-following re-opens tracking.
     follows_user=False (account didn't follow the owner when followed) -> status 'awaiting_followback' (30-day window)."""
     uid, h = str(user_id), _h(handle)
-    mem.check_no_secret(uid, h, source)
+    mem.check_no_secret({"user_id": uid, "handle": h, "source": source})
     at = followed_at or _now()
     stat = AWAITING if follows_user is False else "tracking"
     with mem._Tx(user_key, root) as c:

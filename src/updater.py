@@ -1,10 +1,15 @@
-"""Follower Finder self-updater (v3.5.36).
+"""Follower Finder self-updater (v3.5.37).
 
 Updates come ONLY from https://github.com/EmpressHeavy/FollowerFinderUpdates (branch main).
 Layout installed under HOME (default ~/follower_finder, test installs pass their own folder):
   HOME/app/        code + SKILL.md + VERSION (replaced on update)
+  HOME/app/data/   per-user state (verified_review, memory/brain.db, and the rest). Never deleted.
+  HOME/app/memory and HOME/app/*.db are per-user state too, when they live in the app tree.
   HOME/snapshots/  previous app/ copies (rollback)
+  HOME/user-data-backups/  copy of that per-user state, taken before the code is swapped
 Everything else in HOME (brain.db, backup/, hive.py, ff_feedback.py, logs) is owner data and is never touched.
+A release that ships files under data/ only adds paths that are not already there. Existing user files are not
+overwritten, truncated, or removed. If the swap fails, the previous app snapshot (including that user data) is put back.
 
 CLI:  python3 updater.py check|apply|selftest [--home DIR]
 check prints JSON {status: current|newer|error, installed, remote}; apply installs a newer build
@@ -16,7 +21,102 @@ REPO = "EmpressHeavy/FollowerFinderUpdates"
 VERSION_URL = "https://raw.githubusercontent.com/%s/main/VERSION" % REPO
 TARBALL_URL = "https://codeload.github.com/%s/tar.gz/refs/heads/main" % REPO
 APP_ITEMS = ("SKILL.md", "VERSION", "README.md", "CHANGELOG.md", "src", "hive", "templates", "tools", "config", "routines")
+# Names directly under app/ that are the owner's state, not the published code.
+USER_STATE_DIRS = ("data", "memory")
 _VER = re.compile(r"^v?(\d+(?:\.\d+){0,3})$")
+
+
+def _is_user_state_name(name):
+    return name in USER_STATE_DIRS or name.endswith(".db")
+
+
+def user_state_entries(app):
+    """Directory and database names under app/ that an update must keep. Symlinks are skipped."""
+    if not app or not os.path.isdir(app):
+        return []
+    found = []
+    for name in USER_STATE_DIRS:
+        p = os.path.join(app, name)
+        if os.path.isdir(p) and not os.path.islink(p):
+            found.append(name)
+    for name in sorted(os.listdir(app)):
+        if not name.endswith(".db"):
+            continue
+        p = os.path.join(app, name)
+        if os.path.isfile(p) and not os.path.islink(p):
+            found.append(name)
+    return found
+
+
+def _walk_files(root):
+    for dirpath, dirnames, filenames in os.walk(root):
+        dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
+        for fn in filenames:
+            p = os.path.join(dirpath, fn)
+            if not os.path.islink(p) and os.path.isfile(p):
+                yield p
+
+
+def user_state_bytes(root, names):
+    """Relative path -> exact file bytes for the preserved names under root."""
+    out = {}
+    for name in names:
+        src = os.path.join(root, name)
+        if os.path.isfile(src) and not os.path.islink(src):
+            with open(src, "rb") as f:
+                out[name] = f.read()
+        elif os.path.isdir(src) and not os.path.islink(src):
+            for p in _walk_files(src):
+                rel = os.path.relpath(p, root)
+                with open(p, "rb") as f:
+                    out[rel] = f.read()
+    return out
+
+
+def _copy_user_state(app, dest, names):
+    os.makedirs(dest, exist_ok=True)
+    for name in names:
+        src = os.path.join(app, name)
+        dst = os.path.join(dest, name)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+
+
+def _restore_user_state(backup, app, names):
+    """Put the backup back. Refuses to overwrite a path that is already there."""
+    for name in names:
+        src = os.path.join(backup, name)
+        dst = os.path.join(app, name)
+        if os.path.lexists(dst):
+            raise RuntimeError("refusing to overwrite user data at %s" % name)
+        if os.path.isdir(src):
+            shutil.copytree(src, dst)
+        else:
+            shutil.copy2(src, dst)
+
+
+def merge_seeds(src, dst):
+    """Copy files from a release data/ tree that the install does not already have.
+    An existing file is never opened for write, replaced, or truncated."""
+    if not os.path.isdir(src):
+        return 0
+    added = 0
+    os.makedirs(dst, exist_ok=True)
+    for dirpath, dirnames, filenames in os.walk(src):
+        dirnames[:] = [d for d in dirnames if not os.path.islink(os.path.join(dirpath, d))]
+        rel = os.path.relpath(dirpath, src)
+        target = dst if rel == os.curdir else os.path.join(dst, rel)
+        os.makedirs(target, exist_ok=True)
+        for fn in filenames:
+            s = os.path.join(dirpath, fn)
+            d = os.path.join(target, fn)
+            if os.path.islink(s) or os.path.lexists(d):
+                continue
+            shutil.copy2(s, d)
+            added += 1
+    return added
 
 
 def parse_version(s):
@@ -86,6 +186,8 @@ def apply(home, fetch=_fetch):
         os.makedirs(os.path.dirname(snap), exist_ok=True)
         shutil.copytree(app, snap)
     tmp = tempfile.mkdtemp(prefix="ff-update-")
+    user_backup = None
+    preserved = []
     try:
         root = _safe_extract(fetch(TARBALL_URL, timeout=120), tmp)
         got = open(os.path.join(root, "VERSION")).read().strip()
@@ -93,25 +195,48 @@ def apply(home, fetch=_fetch):
             raise ValueError("archive VERSION %s != %s" % (got, st["remote"]))
         if not os.path.exists(os.path.join(root, "SKILL.md")):
             raise ValueError("archive has no SKILL.md")
+        preserved = user_state_entries(app)
+        original = user_state_bytes(app, preserved) if preserved else {}
+        if preserved:
+            user_backup = os.path.join(home, "user-data-backups", "%s-%d" % (st["installed"] or "none", int(time.time())))
+            _copy_user_state(app, user_backup, preserved)
+            if user_state_bytes(user_backup, preserved) != original:
+                raise RuntimeError("user-data backup does not match the install")
         new = app + ".new"
         shutil.rmtree(new, ignore_errors=True)
         os.makedirs(new)
         for item in APP_ITEMS:
+            if _is_user_state_name(item):
+                continue
             s = os.path.join(root, item)
             if os.path.isdir(s):
                 shutil.copytree(s, os.path.join(new, item))
             elif os.path.isfile(s):
                 shutil.copy2(s, os.path.join(new, item))
-        shutil.rmtree(app, ignore_errors=True)
+        if os.path.isdir(app):
+            shutil.rmtree(app)
         os.replace(new, app)
+        if preserved:
+            _restore_user_state(user_backup, app, preserved)
+            if user_state_bytes(app, preserved) != original:
+                raise RuntimeError("user data changed during update")
+        release_data = os.path.join(root, "data")
+        if os.path.isdir(release_data):
+            merge_seeds(release_data, os.path.join(app, "data"))
+            if preserved:
+                restored = user_state_bytes(app, preserved)
+                for rel, blob in original.items():
+                    if restored.get(rel) != blob:
+                        raise RuntimeError("seed files overwrote user data at %s" % rel)
         return {"status": "updated", "from": st["installed"], "to": got, "snapshot": snap,
-                "skill": os.path.join(app, "SKILL.md")}
+                "user_data_backup": user_backup, "skill": os.path.join(app, "SKILL.md")}
     except Exception as e:
         shutil.rmtree(app + ".new", ignore_errors=True)
         if snap:
             shutil.rmtree(app, ignore_errors=True)
             shutil.copytree(snap, app)
-        return {"status": "rolled_back", "installed": st["installed"], "remote": st["remote"], "error": str(e)[:200]}
+        return {"status": "rolled_back", "installed": st["installed"], "remote": st["remote"],
+                "user_data_backup": user_backup, "error": str(e)[:200]}
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
