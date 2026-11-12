@@ -203,6 +203,7 @@ def next_task(user_key: str, snapshot_id: str, root=None, *, now: dt.datetime | 
     todo = pending(user_key, snapshot_id, root)
     if not todo:
         return None
+    rr._license_gate("write", root)
     r = todo[0]
     cfg = st.load_user_config_dict(root, user_key=user_key)
     keep = st.load_always_keep(root, user_key=user_key)

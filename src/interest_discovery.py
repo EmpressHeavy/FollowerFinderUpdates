@@ -48,6 +48,14 @@ except ImportError:  # pragma: no cover
     import storage as st
     import suggestion_history as sh
 
+
+def _license(action: str, root) -> None:
+    try:
+        from . import license_check
+    except ImportError:  # pragma: no cover
+        import license_check
+    license_check.require(action, root=root)
+
 STOPWORDS = set("""a an and are as at be been but by can could did do does doing for from had has have having he her
 here hers him his how i if in into is it its just like me more most my no not now of off on once only or other our out
 over own same she should so some such than that the their them then there these they this those through to too under
@@ -463,6 +471,7 @@ def run_discovery(topics: list[str], *, search: Callable[[str], dict], fetch_pos
     does not research those accounts again until a non-rejection can resurface. `skipped_count` is a number.
     Returns {run_id, queries, candidates, checked, cards, note, offered, skipped_count, qualified_ids}.
     """
+    _license("recommend", root)
     queries = build_queries(topics, lang=lang)
     remembered = skipped_ids(user_key, root) if user_key else set()
     blocked = _blocked_now(user_key, root, now)
@@ -523,6 +532,7 @@ def run_size_discovery(topics: list[str], *, owner_followers, search: Callable[[
     is Not available, and nothing is searched or invented. fetch_replies(user_id) -> {"data": [posts]} or None
     when replies could not be read (Not available). An empty data list is "None found".
     """
+    _license("recommend", root)
     queries = build_queries(topics, lang=lang)
     run_id = run_id or _new_run_id(now)
     if owner_followers is None:

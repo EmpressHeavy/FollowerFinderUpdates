@@ -69,6 +69,14 @@ FOLLOW_ALL_LABEL = rc.FOLLOW_ALL_LABEL
 RECHECKED_LABEL = rc.RECHECKED_LABEL
 NO_SUITABLE_NOTE = rc.NO_SUITABLE_NOTE
 NONE_FOUND = "None found"
+
+
+def _license(action: str, root) -> None:
+    try:
+        from . import license_check
+    except ImportError:  # pragma: no cover
+        import license_check
+    license_check.require(action, root=root)
 FOLLOWER_PAGE_CAP = None  # v3.5.31: no cap; page until X runs out (rate limits pause+resume in the adapter)
 USER_FIELDS = "created_at,description,public_metrics,verified,verified_type,pinned_tweet_id,connection_status"
 INTEREST_FACTORS = ("builds Grok bots/agents", "Grok Imagine work", "real conversations")
@@ -157,6 +165,7 @@ def run_daily_review(owner_key: str, x: XAdapter, browser: BrowserAdapter, prefs
                      now: dt.datetime | None = None, calls_remaining: int | None = None, *, root=None,
                      first_run_show: int = 0, dd_cfg: dict | None = None,
                      conduct_cfg: dict | None = None) -> dict:
+    _license("scan", root)
     now = now or dt.datetime.now(dt.timezone.utc)
     prefs = {**load_prefs(owner_key, root), **(prefs or {})}
     run_id = now.strftime("%Y%m%dT%H%M%SZ") + "-" + uuid.uuid4().hex[:6]
@@ -266,8 +275,9 @@ def finish_review(owner_key: str, run_id: str, picks: dict, browser: BrowserAdap
     ids expand only to Follow back / Maybe (a legacy card that still lists a Skip does not follow it). An id or card
     number that is not in the pending review raises ValueError and follows nobody. Empty ticks follow nobody.
     refollow_confirmations: {user_id: 'Yes'|'No'} answers to unfollow_back.refollow_gate_card for flagged picks. If a
-    flagged account is picked without an answer, nothing is recorded or followed; returns
+    flagged account is     picked without an answer, nothing is recorded or followed; returns
     {'needs_refollow_confirmation': [gate cards]} so the owner can answer, then call again with the answers."""
+    _license("follow", root)
     state = vf.st.load_json(_state_path(owner_key, run_id, root), None)
     if not state or state.get("owner_key") != owner_key:
         raise ValueError(f"no pending review {run_id} for this owner")

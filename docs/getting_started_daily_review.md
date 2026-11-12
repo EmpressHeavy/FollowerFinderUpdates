@@ -10,6 +10,11 @@
    `show_bought_risk` (off), `read_languages` (`["en"]`).
 
 ## What the routine does each day
+Before the code below, from `~/follower_finder/app` run `python3 -m src.license_check require scan`.
+If it does not print `subscription active`, stop. Tell the owner the sentence it printed, including the renew link.
+Do not scan, suggest, or follow. Do not delete records or the X login.
+Before `finish_review` follows anyone, run `python3 -m src.license_check require follow` the same way.
+
 ```python
 from src import daily_review as dr
 out = dr.run_daily_review(owner_key, x, browser, prefs=None, now=None, calls_remaining=<X budget left today>)

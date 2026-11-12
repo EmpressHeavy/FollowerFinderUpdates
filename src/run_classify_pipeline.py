@@ -77,6 +77,11 @@ def run_pipeline(
     assert not PHASE2_EXECUTION_ENABLED, "Phase 2 must stay disabled"
     # Automatic Mode may be enabled (2026-10-16); this pipeline is classification-only and never executes.
     root = Path(root) if root is not None else PROJECT_ROOT
+    try:
+        from . import license_check
+    except ImportError:  # pragma: no cover
+        import license_check
+    license_check.require("scan", root=root)
     # Per-user isolation (2026-10-16): all scan inputs/outputs live under data/users/{user_key}/; no global fallback.
     user_root = user_data_root(user_key, root)
     preflight.require(user_key, root)  # inside Grok Bot: Google Sheets + Drive must be confirmed before a run

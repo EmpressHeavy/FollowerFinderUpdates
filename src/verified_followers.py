@@ -236,7 +236,11 @@ def log_run(user_key: str, run: dict, root=None) -> None:
 
 def daily_steps(cfg: dict) -> list[str]:
     t = ((cfg.get("verified_review") or {}).get("time")) or DEFAULT_TIME
-    return [f"at {t} owner time (DAILY_REVIEW_TIME pref, default 18:00): daily_review.run_daily_review(owner_key, x, browser, "
+    return ["license: python3 -m src.license_check require scan (mandatory before this review; if it exits "
+            "non-zero, stop and tell the owner the sentence it prints; do not scan, suggest, or follow; "
+            "do not delete records or the X login). Before finish_review follows anyone: "
+            "python3 -m src.license_check require follow",
+            f"at {t} owner time (DAILY_REVIEW_TIME pref, default 18:00): daily_review.run_daily_review(owner_key, x, browser, "
             "prefs, now, calls_remaining) runs every step below in order and returns the cards; after the owner's picks, "
             "daily_review.finish_review(owner_key, run_id, picks, browser) records them and follows ONLY the picks",
             f"recheck_queue.process_due() first (due inactive accounts get the same 90-day deep dive;  (due inactive accounts get the same 90-day deep dive; "
