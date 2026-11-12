@@ -32,7 +32,7 @@ def package_version() -> str:
         line = (PACKAGE / "VERSION").read_text(encoding="utf-8").strip().splitlines()[0].strip()
     except (OSError, IndexError):
         line = ""
-    return line if re.fullmatch(r"v\d+(?:\.\d+){1,3}", line or "") else "v3.5.37"
+    return line if re.fullmatch(r"v\d+(?:\.\d+){1,3}", line or "") else "v3.5.38"
 
 
 def user_agent() -> str:
