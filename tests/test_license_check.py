@@ -102,6 +102,9 @@ class LicenseCheckTests(unittest.TestCase):
         self.assertIn("4.49 USD/month", message)
         pay = "https://license.example/pay?install_id=" + ("a" * 32) + "&product=ff"
         self.assertIn(pay, message)
+        page = "https://empressheavy.com/subscribe/?product=ff&install_id=" + ("a" * 32)
+        self.assertIn("[Subscribe](" + page + ")", message)
+        self.assertIn("Your install ID is `" + ("a" * 32) + "`.", message)
         self.assertEqual(seen["payload"], {"install_id": "a" * 32, "product": "ff"})
         self.assertNotIn("both", seen["payload"].values())
         state = json.loads((self.root / "data" / "install_license.json").read_text(encoding="utf-8"))
@@ -188,7 +191,7 @@ class LicenseCheckTests(unittest.TestCase):
         with self.assertRaises(lc.LicenseError) as caught:
             lc.require("follow", root=self.root, now=NOW)
         self.assertIn("records are still here", str(caught.exception))
-        self.assertIn("https://empressheavy.com/subscribe/", str(caught.exception))
+        self.assertIn("[Subscribe](https://empressheavy.com/subscribe/?product=ff)", str(caught.exception))
         self.assertEqual(kept.read_text(encoding="utf-8"), '{"event":"keep"}\n')
 
     def test_removal_runner_refuses_before_any_x_work(self):
@@ -227,6 +230,24 @@ class LicenseCheckTests(unittest.TestCase):
             fx.run("demo_user", "r1", [{"user_id": "1", "handle": "@a"}], boom, root=self.root)
         with self.assertRaises(lc.LicenseError):
             fx.FollowSession("demo_user", "r1", [{"user_id": "1", "handle": "@a"}], root=self.root)
+
+
+    def test_locked_message_uses_a_prefilled_subscribe_button(self):
+        """The clickable Subscribe link goes to EmpressHeavy.com with product and install id filled in."""
+        install = "a" * 64
+        page = lc.subscribe_page_url("ff", install)
+        self.assertEqual(page, "https://empressheavy.com/subscribe/?product=ff&install_id=" + install)
+        pay = lc.pay_link("https://empress-license.empressheavy.workers.dev", install, "ff")
+        message = lc._message("inactive", price=PRICE, renew_url=pay, grace_hours=72,
+                              install_id=install, product="ff")
+        self.assertIn("[Subscribe](" + page + ")", message)
+        self.assertIn("Your install ID is `" + install + "`.", message)
+        self.assertIn("If that page doesn't open, you can also subscribe here: ", message)
+        self.assertIn(pay, message)
+        bare = lc._message("never", price=None, renew_url="", grace_hours=72, product="ff")
+        self.assertIn("[Subscribe](https://empressheavy.com/subscribe/?product=ff)", bare)
+        self.assertNotIn("install ID", bare)
+        self.assertNotIn("/pay?", bare)
 
     def test_instructions_make_the_check_mandatory(self):
         skill = (ROOT / "SKILL.md").read_text(encoding="utf-8")

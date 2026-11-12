@@ -19,7 +19,7 @@ Follower Finder is $4.49/month. Bot Terminator and Follower Finder together are 
    python3 -m src.license_check require scan
    ```
 
-   The first command prints an install id. The second should refuse, say the subscription isn't active, and print a renew link. That link is `https://empress-license.empressheavy.workers.dev/pay?install_id=...&product=ff`. If the install id is not known yet, the message uses https://empressheavy.com/subscribe/ instead. Your local records and X login stay as they are.
+   The first command prints an install id. The second should refuse, say the subscription isn't active, and print a clickable `[Subscribe](https://empressheavy.com/subscribe/?product=ff&install_id=...)` link (product and install ID already filled in), the install ID, and the `/pay` fallback `https://empress-license.empressheavy.workers.dev/pay?install_id=...&product=ff`. If the install id is not known yet, the Subscribe link is https://empressheavy.com/subscribe/?product=ff with no `/pay` fallback. Your local records and X login stay as they are.
 
 2. Open that link and pay with a real card. This is the live server, so the charge is real. Stripe's test card `4242 4242 4242 4242` is only for a Stripe test-mode server, not this one.
 

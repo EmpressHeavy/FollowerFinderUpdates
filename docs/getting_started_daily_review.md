@@ -11,7 +11,7 @@
 
 ## What the routine does each day
 Before the code below, from `~/follower_finder/app` run `python3 -m src.license_check require scan`.
-If it does not print `subscription active`, stop. Tell the owner the sentence it printed, including the renew link.
+If it does not print `subscription active`, stop. Show the owner the text it printed, keeping the [Subscribe](...) link clickable, including the install ID and `/pay` fallback.
 Do not scan, suggest, or follow. Do not delete records or the X login.
 Before `finish_review` follows anyone, run `python3 -m src.license_check require follow` the same way.
 
