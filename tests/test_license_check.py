@@ -263,6 +263,17 @@ class LicenseCheckTests(unittest.TestCase):
         self.assertIn("license_check require follow", review)
         self.assertIn("license_check require scan", guide)
         self.assertIn("license_check require write", lists)
+        weekly = (ROOT / "routines" / "weekly-update-check.md").read_text(encoding="utf-8")
+        updater = (ROOT / "src" / "updater.py").read_text(encoding="utf-8")
+        for text in (skill, weekly, updater):
+            low = text.lower()
+            self.assertIn("latest version", low)
+            self.assertIn("cannot be skipped", low)
+            self.assertIn("older", low)
+        self.assertIn("commit message", skill.lower())
+        self.assertIn("commit message", weekly.lower())
+        self.assertIn("refs/heads/main", updater)
+        self.assertIn("/main/VERSION", updater)
 
     def test_usage(self):
         self.assertEqual(lc.main(["nope"]), 2)

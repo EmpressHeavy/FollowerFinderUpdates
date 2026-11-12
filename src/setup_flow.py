@@ -222,7 +222,7 @@ def update_message(result: dict, changelog: str = "", *, failed_weeks: int = 0, 
     st, ver = (result or {}).get("status"), (result or {}).get("version") or "?"
     if st == "updated":
         if during_setup:
-            return f"I just updated myself to {ver}."
+            return f"I installed the latest version ({ver})."
         bl = changelog_bullets(changelog, ver)
         return f"Follower Finder updated to {ver}." + (" What's new: " + "; ".join(bl) if bl else "")
     if st == "rolled_back":

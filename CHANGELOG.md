@@ -2,6 +2,7 @@
 
 ## v3.5.39
 - An unpaid or unconfirmed install now shows a clickable Subscribe link to https://empressheavy.com/subscribe/?product=ff&install_id=... so the product and install ID are already filled in, and still keeps the license-server `/pay` checkout as a fallback. The bot also shows the install ID so it can be copied.
+- First install and updates from this repo always take the latest VERSION on main. The bot must not offer older versions, tags, or commits, or treat commit messages as a version menu. The subscription check cannot be skipped by installing an older build.
 
 ## v3.5.38
 - Subscription check before a scan, a suggestion, a follow, or any other change on X. Follower Finder is $4.49/month, or $8.99/month bundled with Bot Terminator, via https://empressheavy.com/subscribe/. If the subscription isn't active, that action stops, your records and X login stay, and the renew link is shown.

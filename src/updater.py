@@ -1,6 +1,8 @@
 """Follower Finder self-updater (v3.5.39).
 
 Updates come ONLY from https://github.com/EmpressHeavy/FollowerFinderUpdates (branch main).
+Always install the latest version: the published VERSION file on main. This tool has no switch for an older tag, commit, or version.
+Callers must not invent one or offer a version menu. The subscription check cannot be skipped by choosing an older build.
 Layout installed under HOME (default ~/follower_finder, test installs pass their own folder):
   HOME/app/        code + SKILL.md + VERSION (replaced on update)
   HOME/app/data/   per-user state (verified_review, memory/brain.db, and the rest). Never deleted.

@@ -3,5 +3,5 @@
 1. Run `python3 <HOME>/app/src/updater.py apply --home <HOME>` (HOME = ~/follower_finder, or the test install's own folder).
 2. "updated": replace the getting-started skill with <HOME>/app/SKILL.md, save `mem` fact `ff installed_version`, send one note "Follower Finder updated to <version>. What's new: <2-4 bullets from CHANGELOG.md>".
 3. "current": silent. "rolled_back": one line saying it tried, rolled back, will retry next week. Fetch error: silent; mention only after 3 failed weeks in a row.
-Updates never turn on follows, unfollows, messages or other optional settings; new options are offered off by default. Source: github.com/EmpressHeavy/FollowerFinderUpdates only.
+Updates never turn on follows, unfollows, messages or other optional settings; new options are offered off by default. Source: github.com/EmpressHeavy/FollowerFinderUpdates only, always the latest VERSION on main. Never offer or install an older version, tag, or commit, and do not treat commit messages as a version menu. You may summarize what's new from that VERSION's CHANGELOG entry. If you describe the update, say you installed the latest version. The subscription check cannot be skipped by staying on or choosing an older build.
 Do not delete `~/follower_finder/data/install_license.json`. That file is the subscription install id, not an X account, and an update must leave it in place.
