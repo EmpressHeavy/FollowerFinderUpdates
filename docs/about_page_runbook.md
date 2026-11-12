@@ -1,6 +1,6 @@
 # Reading "About this account" (box-browser scan path, v3.5.8)
 
-This is part of analyzing followers. Before the first About page, run `python3 -m src.license_check require scan` from `~/follower_finder/app`. If it does not print `subscription active`, stop and tell the owner the sentence it printed, including the renew link. Do not delete records or the X login.
+This is part of analyzing followers. Before the first About page, run `python3 -m src.license_check require scan` from `~/follower_finder/app`. If it does not print `subscription active`, stop and show the owner the text it printed, keeping the [Subscribe](...) link clickable, including the install ID and `/pay` fallback. Do not delete records or the X login.
 
 Used only in the Stage 2 deep check, and only for followers that survived Stage 1 (`about_account.about_read_queue`).
 Read-only: never click Follow, Block, Report or anything else on these pages.
