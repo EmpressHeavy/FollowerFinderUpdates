@@ -48,6 +48,17 @@ except ImportError:  # pragma: no cover
     import storage as st
     import suggestion_history as sh
 
+def _with_tip(result: dict, user_key: str | None, root, now, kind: str) -> dict:
+    """Count a finished discovery. No user_key means nothing is stored. A failure leaves the result as it is."""
+    if not user_key:
+        return result
+    try:
+        from . import tip_prompt
+    except ImportError:  # pragma: no cover
+        import tip_prompt
+    return tip_prompt.attach(result, user_key, root=root, now=now, kind=kind)
+
+
 STOPWORDS = set("""a an and are as at be been but by can could did do does doing for from had has have having he her
 here hers him his how i if in into is it its just like me more most my no not now of off on once only or other our out
 over own same she should so some such than that the their them then there these they this those through to too under
@@ -496,9 +507,10 @@ def run_discovery(topics: list[str], *, search: Callable[[str], dict], fetch_pos
         _log_pass(user_key, run_id, "interest_discovery", [_public(r) for r in offered_rows], fresh, [],
                   root=root, now=now)
     qualified = [r["user_id"] for r in offered_rows]
-    return {"run_id": run_id, "queries": queries, "checked": len(fresh),
-            "candidates": [_public(r) for r in offered_rows], "cards": assembled["cards"], "note": note,
-            "offered": assembled["offered"], "skipped_count": len(skips), "qualified_ids": qualified}
+    return _with_tip({"run_id": run_id, "queries": queries, "checked": len(fresh),
+                      "candidates": [_public(r) for r in offered_rows], "cards": assembled["cards"], "note": note,
+                      "offered": assembled["offered"], "skipped_count": len(skips), "qualified_ids": qualified},
+                     user_key, root, now, "discovery")
 
 
 def _size_public(row: dict, scored: dict) -> dict:
@@ -580,10 +592,11 @@ def run_size_discovery(topics: list[str], *, owner_followers, search: Callable[[
                   [_size_public(r, scored_by[r["user_id"]]) for r in offered_rows], fresh, held,
                   root=root, now=now)
     qualified = [r["user_id"] for r in offered_rows]
-    return {"run_id": run_id, "queries": queries, "checked": len(fresh), "method": "interest_and_size",
-            "candidates": [_size_public(r, scored_by[r["user_id"]]) for r in offered_rows],
-            "cards": assembled["cards"], "note": note, "offered": assembled["offered"],
-            "skipped_count": len(reviewed) - len(offered_rows), "qualified_ids": qualified}
+    return _with_tip({"run_id": run_id, "queries": queries, "checked": len(fresh), "method": "interest_and_size",
+                      "candidates": [_size_public(r, scored_by[r["user_id"]]) for r in offered_rows],
+                      "cards": assembled["cards"], "note": note, "offered": assembled["offered"],
+                      "skipped_count": len(reviewed) - len(offered_rows), "qualified_ids": qualified},
+                     user_key, root, now, "discovery")
 
 
 def validate_pending_selection(user_key: str, run_id: str, picks: dict, *, root=None) -> dict:

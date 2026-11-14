@@ -19,6 +19,8 @@ out = dr.run_daily_review(owner_key, x, browser, prefs=None, now=None, calls_rem
 # ...owner picks...
 summary = dr.finish_review(owner_key, out["run_id"], {card_no: [user_id | dr.FOLLOW_ALL, ...]}, browser)
 # post ONE message to the owner: summary["text"]
+# out["tip"] already counted this review. If out["tip"]["show"] is true, show the optional tip
+# AFTER the cards (see SKILL.md, Tip). Never before, and never during first-run setup.
 ```
 `run_daily_review` runs these steps in order:
 1. followers and following

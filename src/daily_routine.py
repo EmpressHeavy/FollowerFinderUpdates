@@ -19,6 +19,15 @@ def validate_time(t: str) -> str:
     return t
 
 
+TIP_STEP = ("after the results are already shown (never before, and never during first-run setup): "
+            "if the result has a tip field, that use is already counted; otherwise run "
+            "`python3 -m src.tip_prompt record --user <user_key> --run-id <run_id>` once. "
+            "Show the optional tip only when tip.show is true, after the results. "
+            "Maybe later keeps the current cadence. Remind me monthly, or dismissing the prompt, "
+            "switches to at most once every 30 days. There is no forever off. "
+            "If this step fails, ignore it and continue")
+
+
 def scan_steps(cfg: dict) -> list[str]:
     """The steps of one daily scan. The terminate reminder's "Yes" button runs these same steps now."""
     return (["preflight: recheck Google Sheets + Google Drive, read the Follower Finder Book",
@@ -35,7 +44,8 @@ def scan_steps(cfg: dict) -> list[str]:
                 "on each 'Remove me ...' tap: leave the chosen lists NOW, one at a time (list_flow, "
                 "docs/list_runbook.md); write each list to List Graveyard the moment its task finishes",
                 "card: repeat offenders (list_cards.build_repeat_offender_card)"]
-               if (cfg.get("lists") or {}).get("enabled") else []))
+               if (cfg.get("lists") or {}).get("enabled") else [])
+            + [TIP_STEP])
 
 
 def routine_spec(cfg: dict) -> dict:
