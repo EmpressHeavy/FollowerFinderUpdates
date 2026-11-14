@@ -267,7 +267,11 @@ def daily_steps(cfg: dict) -> list[str]:
             "(inactive + not picked -> queued for a monthly recheck; followed / hard Skip -> removed)",
             "suggestion_history: every offered account is logged for this owner only (append-only). A confirmed follow "
             "and an explicit decline (Skip all) are separate states. Shown but not picked, or no follow-back, is not "
-            "a rejection and can be suggested again after the cooldown"]
+            "a rejection and can be suggested again after the cooldown",
+            "tip: run_daily_review already counts this review (result['tip']). Show it only when tip.show is true, "
+            "after the cards, never during first-run setup. Maybe later keeps the cadence. Remind me monthly, or "
+            "dismissing the prompt, switches to at most once every 30 days. There is no forever off. "
+            "A tip failure never stops the review"]
 
 
 # ---- v3.5.15 follow-back scoring (owner beta spec, 2026-10-28). Product-wide: owner_handle is each user's own handle.

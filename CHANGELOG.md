@@ -1,5 +1,10 @@
 # Changelog
 
+## v3.5.41
+- Optional tip. After 10 completed scans or sessions, and never during first-run setup, Follower Finder may ask: "Wow you seem to be using Follower Finder a lot lately! Would you mind sending my creator a tip? 🪙" It shows a QR code that is already in the app (assets/tip-qr-stripe.png, the Stripe link) plus clickable links for Stripe, Cash App, Venmo, and X Money (@HeavyMetalShip). Buttons: Maybe later, and Remind me monthly. Maybe later keeps the current cadence (at most once every 7 days until it changes). Remind me monthly, or dismissing the prompt, switches that to at most once every 30 days. There is no forever off. The prompt never blocks or delays a scan, suggestion, follow, or anything else. Follower Finder stays free.
+- The QR ships in assets/, and updates copy assets/ with the app, so the bot does not download or generate it.
+- Installs and updates still always take the latest VERSION on main, with no older-version menu.
+
 ## v3.5.40
 - Follower Finder is now free for everyone. There is nothing to pay, and no install code or lock card anymore: scans, suggestions, follows, and other X actions no longer wait on a check.
 - Removed `src/license_check.py`, `config/license.json`, and their tests. `~/follower_finder/data/install_license.json` from v3.5.38 or v3.5.39 is no longer used, and any routine step that ran the old check is dropped. Records, settings, and the X login are kept.

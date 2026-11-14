@@ -1,10 +1,10 @@
-"""Follower Finder self-updater (v3.5.40).
+"""Follower Finder self-updater (v3.5.41).
 
 Updates come ONLY from https://github.com/EmpressHeavy/FollowerFinderUpdates (branch main).
 Always install the latest version: the published VERSION file on main. This tool has no switch for an older tag, commit, or version.
 Callers must not invent one or offer a version menu.
 Layout installed under HOME (default ~/follower_finder, test installs pass their own folder):
-  HOME/app/        code + SKILL.md + VERSION (replaced on update)
+  HOME/app/        code + SKILL.md + VERSION + assets (profile picture and tip QR; replaced on update)
   HOME/app/data/   per-user state (verified_review, memory/brain.db, and the rest). Never deleted.
   HOME/app/memory and HOME/app/*.db are per-user state too, when they live in the app tree.
   HOME/snapshots/  previous app/ copies (rollback)
@@ -22,7 +22,8 @@ import io, json, os, re, shutil, sys, tarfile, tempfile, time, urllib.request
 REPO = "EmpressHeavy/FollowerFinderUpdates"
 VERSION_URL = "https://raw.githubusercontent.com/%s/main/VERSION" % REPO
 TARBALL_URL = "https://codeload.github.com/%s/tar.gz/refs/heads/main" % REPO
-APP_ITEMS = ("SKILL.md", "VERSION", "README.md", "CHANGELOG.md", "src", "hive", "templates", "tools", "config", "routines")
+APP_ITEMS = ("SKILL.md", "VERSION", "README.md", "CHANGELOG.md", "src", "hive", "templates", "tools", "config",
+             "routines", "assets")
 # Names directly under app/ that are the owner's state, not the published code.
 USER_STATE_DIRS = ("data", "memory")
 _VER = re.compile(r"^v?(\d+(?:\.\d+){0,3})$")

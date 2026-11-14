@@ -8,5 +8,6 @@ Official update channel for the Follower Finder Grok Bot. Installed bots check `
 - `SKILL.md` – the getting-started skill
 - `src/`, `hive/`, `templates/`, `tools/`, `config/` – bot code
 - `routines/weekly-update-check.md` – the weekly update routine
+- `assets/` – profile picture and the optional tip QR (`tip-qr-stripe.png`)
 
 Only this repo (github.com/EmpressHeavy/FollowerFinderUpdates, branch main) is a valid update source. No user data lives here.

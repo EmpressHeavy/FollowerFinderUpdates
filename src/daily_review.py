@@ -69,6 +69,17 @@ FOLLOW_ALL_LABEL = rc.FOLLOW_ALL_LABEL
 RECHECKED_LABEL = rc.RECHECKED_LABEL
 NO_SUITABLE_NOTE = rc.NO_SUITABLE_NOTE
 NONE_FOUND = "None found"
+
+
+def _with_tip(result: dict, user_key: str, root, now, kind: str) -> dict:
+    """Count a finished review. Local bookkeeping only; a failure leaves the review result as it is."""
+    try:
+        from . import tip_prompt
+    except ImportError:  # pragma: no cover
+        import tip_prompt
+    return tip_prompt.attach(result, user_key, root=root, now=now, kind=kind)
+
+
 FOLLOWER_PAGE_CAP = None  # v3.5.31: no cap; page until X runs out (rate limits pause+resume in the adapter)
 USER_FIELDS = "created_at,description,public_metrics,verified,verified_type,pinned_tweet_id,connection_status"
 INTEREST_FACTORS = ("builds Grok bots/agents", "Grok Imagine work", "real conversations")
@@ -178,7 +189,9 @@ def run_daily_review(owner_key: str, x: XAdapter, browser: BrowserAdapter, prefs
     if not seen.get("baselined_at") and not seen["ids"] and not first_run_show:
         vf.mark_seen(owner_key, verified, root, baseline=True)
         vf.log_run(owner_key, {"run_id": run_id, "baseline": len(verified)}, root)
-        return {"run_id": run_id, "cards": [], "baseline": True, "summary": "First run: baseline saved, nothing to review."}
+        return _with_tip({"run_id": run_id, "cards": [], "baseline": True,
+                          "summary": "First run: baseline saved, nothing to review."},
+                         owner_key, root, now, "review")
     new = vf.select_new(verified, following_ids, seen)
     if first_run_show and not seen["ids"]:
         new = new[:first_run_show]
@@ -252,11 +265,12 @@ def run_daily_review(owner_key: str, x: XAdapter, browser: BrowserAdapter, prefs
     vf.log_run(owner_key, {"run_id": run_id, "new": len(new), "shown": len(kept), "offered": assembled["offered"],
                            "skipped_count": assembled["skipped_count"], "rechecked": len(rechecked.get("surface") or []),
                            "deferred": len(deferred), "calls_used": used}, root)
-    return {"run_id": run_id, "cards": cards, "note": assembled["note"], "offered": assembled["offered"],
-            "skipped_count": assembled["skipped_count"], "calls_used": used, "deferred": [u["id"] for u in deferred],
-            "translation_requests": reqs,
-            "recheck": {k: rechecked.get(k) for k in ("still_inactive", "removed", "deferred")},
-            "followback_window": window}
+    return _with_tip({"run_id": run_id, "cards": cards, "note": assembled["note"], "offered": assembled["offered"],
+                      "skipped_count": assembled["skipped_count"], "calls_used": used,
+                      "deferred": [u["id"] for u in deferred], "translation_requests": reqs,
+                      "recheck": {k: rechecked.get(k) for k in ("still_inactive", "removed", "deferred")},
+                      "followback_window": window},
+                     owner_key, root, now, "review")
 
 
 def finish_review(owner_key: str, run_id: str, picks: dict, browser: BrowserAdapter, *, root=None, now=None,
